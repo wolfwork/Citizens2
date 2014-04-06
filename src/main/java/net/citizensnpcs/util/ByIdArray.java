@@ -5,6 +5,7 @@ import java.util.ConcurrentModificationException;
 import java.util.Iterator;
 import java.util.NoSuchElementException;
 
+@Deprecated
 public class ByIdArray<T> implements Iterable<T> {
     private final int capacity;
     private Object[] elementData;
@@ -26,6 +27,10 @@ public class ByIdArray<T> implements Iterable<T> {
 
     public int add(T t) {
         int index = 0;
+        if (elementData[0] == null) {
+            put(index, t);
+            return index;
+        }
         while (elementData[index++] != null) {
             if (index >= elementData.length) {
                 ensureCapacity(elementData.length + 1);
@@ -67,24 +72,26 @@ public class ByIdArray<T> implements Iterable<T> {
 
     @SuppressWarnings("unchecked")
     public T get(int index) {
-        if (index > elementData.length)
+        if (index >= elementData.length)
             return null;
         return (T) elementData[index];
     }
 
     @Override
     public Iterator<T> iterator() {
-        return new Itr();
+        return new Itr2();
     }
 
     public void put(int index, T t) {
         if (t == null)
             throw new IllegalArgumentException("can't insert a null object");
         ++modCount;
-        if (index > highest)
+        if (index > highest) {
             highest = index;
-        if (index < lowest)
+        }
+        if (index < lowest) {
             lowest = index;
+        }
 
         ensureCapacity(index + 2);
 
@@ -94,29 +101,34 @@ public class ByIdArray<T> implements Iterable<T> {
 
     private void recalcHighest() {
         highest = elementData.length - 1;
-        while (highest != 0 && elementData[highest--] == null)
+        while (highest != 0 && elementData[--highest] == null) {
             ;
+        }
     }
 
     private void recalcLowest() {
         lowest = 0;
-        while (elementData.length > lowest && elementData[lowest++] == null)
+        while (elementData.length > lowest && elementData[lowest++] == null) {
             ;
+        }
     }
 
     public T remove(int index) {
-        if (index > elementData.length || elementData[index] == null)
+        if (index > elementData.length || elementData[index] == null) {
             return null;
-        ++modCount;
-        if (index == highest)
-            recalcHighest();
-        if (index == lowest)
-            recalcLowest();
+        }
         @SuppressWarnings("unchecked")
         T prev = (T) elementData[index];
         elementData[index] = null;
-        if (prev != null)
-            --size;
+        --size;
+        ++modCount;
+
+        if (index >= highest) {
+            recalcHighest();
+        }
+        if (index <= lowest) {
+            recalcLowest();
+        }
         return prev;
     }
 
@@ -125,53 +137,73 @@ public class ByIdArray<T> implements Iterable<T> {
     }
 
     public void trimToSize() {
-        if (elementData.length > highest)
+        if (elementData.length > highest) {
             elementData = Arrays.copyOf(elementData, highest + 1);
+        }
     }
 
-    private class Itr implements Iterator<T> {
-        private int expected = ByIdArray.this.modCount;
-        private int idx;
-        {
+    private class Itr2 implements Iterator<T> {
+        int cursor;
+        int expectedModCount = modCount;
+        int lastRet = -1;
+
+        public Itr2() {
             if (size > 0) {
-                if (highest == Integer.MIN_VALUE || highest >= elementData.length || elementData[highest] == null)
+                if (lowest > highest || highest == Integer.MIN_VALUE || highest >= elementData.length
+                        || elementData[highest] == null) {
                     recalcHighest();
-                if (lowest >= elementData.length || elementData[lowest] == null)
+                }
+                if (lowest > highest || lowest >= elementData.length || elementData[lowest] == null) {
                     recalcLowest();
-                idx = lowest - 1;
+                }
+                cursor = lowest;
             }
+        }
+
+        private void advance() {
+            do {
+                cursor++;
+            } while (cursor != highest + 1 && elementData[cursor] == null);
+        }
+
+        final void checkForComodification() {
+            if (modCount != expectedModCount)
+                throw new ConcurrentModificationException();
         }
 
         @Override
         public boolean hasNext() {
-            if (modCount != expected) {
-                throw new ConcurrentModificationException();
-            }
-            return size > 0 && highest > idx;
+            return size > 0 && highest >= cursor;
         }
 
         @Override
         @SuppressWarnings("unchecked")
         public T next() {
-            if (modCount != expected)
+            checkForComodification();
+            int i = cursor;
+            if (cursor > highest)
+                throw new NoSuchElementException();
+            Object[] elementData = ByIdArray.this.elementData;
+            if (i >= elementData.length)
                 throw new ConcurrentModificationException();
-            if (idx > highest)
-                throw new NoSuchElementException();
-            do
-                idx++;
-            while (idx != highest + 1 && elementData[idx] == null);
-            T next = (T) elementData[idx];
-            if (next == null)
-                throw new NoSuchElementException();
-            return next;
+            advance();
+            return (T) elementData[lastRet = i];
         }
 
         @Override
         public void remove() {
-            if (modCount != expected)
+            if (lastRet < 0)
+                throw new IllegalStateException();
+            checkForComodification();
+
+            try {
+                ByIdArray.this.fastRemove(lastRet);
+                cursor = lastRet;
+                lastRet = -1;
+                expectedModCount = modCount;
+            } catch (IndexOutOfBoundsException ex) {
                 throw new ConcurrentModificationException();
-            fastRemove(idx);
-            expected = modCount;
+            }
         }
     }
 

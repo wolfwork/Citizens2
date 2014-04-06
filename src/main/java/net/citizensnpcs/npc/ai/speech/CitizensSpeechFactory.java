@@ -8,12 +8,12 @@ import net.citizensnpcs.api.ai.speech.SpeechFactory;
 import net.citizensnpcs.api.ai.speech.Talkable;
 import net.citizensnpcs.api.ai.speech.VocalChord;
 
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.LivingEntity;
 
 import com.google.common.base.Preconditions;
 
 public class CitizensSpeechFactory implements SpeechFactory {
-
     Map<String, Class<? extends VocalChord>> registered = new HashMap<String, Class<? extends VocalChord>>();
 
     @Override
@@ -56,17 +56,18 @@ public class CitizensSpeechFactory implements SpeechFactory {
 
     @Override
     public boolean isRegistered(String name) {
-        if (registered.containsKey(name.toLowerCase()))
-            return true;
-        else
-            return false;
+        return registered.containsKey(name.toLowerCase());
     }
 
     @Override
-    public Talkable newTalkableEntity(LivingEntity entity) {
+    public Talkable newTalkableEntity(Entity entity) {
         if (entity == null)
             return null;
         return new TalkableEntity(entity);
+    }
+
+    public Talkable newTalkableEntity(LivingEntity entity) {
+        return newTalkableEntity((Entity) entity);
     }
 
     @Override

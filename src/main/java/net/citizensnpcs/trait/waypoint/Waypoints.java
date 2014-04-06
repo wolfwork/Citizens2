@@ -5,6 +5,7 @@ import java.util.Map.Entry;
 
 import net.citizensnpcs.api.command.CommandContext;
 import net.citizensnpcs.api.exception.NPCLoadException;
+import net.citizensnpcs.api.persistence.PersistenceLoader;
 import net.citizensnpcs.api.trait.Trait;
 import net.citizensnpcs.api.util.DataKey;
 import net.citizensnpcs.api.util.Messaging;
@@ -74,20 +75,21 @@ public class Waypoints extends Trait {
         }
         if (provider == null)
             return;
-        provider.load(key.getRelative(providerName));
+        PersistenceLoader.load(provider, key.getRelative(providerName));
     }
 
     @Override
     public void onSpawn() {
-        if (provider != null)
+        if (provider != null) {
             provider.onSpawn(getNPC());
+        }
     }
 
     @Override
     public void save(DataKey key) {
         if (provider == null)
             return;
-        provider.save(key.getRelative(providerName));
+        PersistenceLoader.save(provider, key.getRelative(providerName));
         key.setString("provider", providerName);
     }
 
@@ -102,18 +104,17 @@ public class Waypoints extends Trait {
     public boolean setWaypointProvider(String name) {
         name = name.toLowerCase();
         Class<? extends WaypointProvider> clazz = providers.get(name);
-        if (clazz == null)
-            return false;
-        provider = create(clazz);
-        if (provider == null)
+        if (provider != null) {
+            provider.onRemove();
+        }
+        if (clazz == null || (provider = create(clazz)) == null)
             return false;
         providerName = name;
-        if (npc != null && npc.isSpawned())
+        if (npc != null && npc.isSpawned()) {
             provider.onSpawn(npc);
+        }
         return true;
     }
-
-    private static final Map<String, Class<? extends WaypointProvider>> providers = Maps.newHashMap();
 
     /**
      * Registers a {@link WaypointProvider}, which can be subsequently used by
@@ -128,8 +129,11 @@ public class Waypoints extends Trait {
         providers.put(name, clazz);
     }
 
+    private static final Map<String, Class<? extends WaypointProvider>> providers = Maps.newHashMap();
+
     static {
         providers.put("linear", LinearWaypointProvider.class);
         providers.put("wander", WanderWaypointProvider.class);
+        providers.put("guided", GuidedWaypointProvider.class);
     }
 }

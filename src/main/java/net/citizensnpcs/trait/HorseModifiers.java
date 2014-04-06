@@ -7,12 +7,17 @@ import org.bukkit.entity.Horse;
 import org.bukkit.entity.Horse.Color;
 import org.bukkit.entity.Horse.Style;
 import org.bukkit.entity.Horse.Variant;
+import org.bukkit.inventory.ItemStack;
 
 public class HorseModifiers extends Trait {
+    @Persist("armor")
+    private ItemStack armor = null;
     @Persist("carryingChest")
     private boolean carryingChest;
     @Persist("color")
     private Color color = Color.CREAMY;
+    @Persist("saddle")
+    private ItemStack saddle = null;
     @Persist("style")
     private Style style = Style.NONE;
     @Persist("type")
@@ -39,6 +44,15 @@ public class HorseModifiers extends Trait {
         updateModifiers();
     }
 
+    @Override
+    public void run() {
+        if (npc.getEntity() instanceof Horse) {
+            Horse horse = (Horse) npc.getEntity();
+            saddle = horse.getInventory().getSaddle();
+            armor = horse.getInventory().getArmor();
+        }
+    }
+
     public void setCarryingChest(boolean carryingChest) {
         this.carryingChest = carryingChest;
         updateModifiers();
@@ -60,12 +74,14 @@ public class HorseModifiers extends Trait {
     }
 
     private void updateModifiers() {
-        if (npc.getBukkitEntity() instanceof Horse) {
-            Horse horse = (Horse) npc.getBukkitEntity();
+        if (npc.getEntity() instanceof Horse) {
+            Horse horse = (Horse) npc.getEntity();
             horse.setCarryingChest(carryingChest);
             horse.setColor(color);
             horse.setStyle(style);
             horse.setVariant(type);
+            horse.getInventory().setArmor(armor);
+            horse.getInventory().setSaddle(saddle);
         }
     }
 }

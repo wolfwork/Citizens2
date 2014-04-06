@@ -23,7 +23,7 @@ public class Util {
     private Util() {
     }
 
-    public static void assumePose(LivingEntity entity, float yaw, float pitch) {
+    public static void assumePose(Entity entity, float yaw, float pitch) {
         NMS.look(entity, yaw, pitch);
     }
 
@@ -39,15 +39,20 @@ public class Util {
         return event;
     }
 
-    public static void faceEntity(LivingEntity from, LivingEntity at) {
-        if (from.getWorld() != at.getWorld())
+    public static void faceEntity(Entity entity, Entity at) {
+        if (entity.getWorld() != at.getWorld())
             return;
-        Location atLocation = at.getLocation(AT_LOCATION);
-        Location fromLocation = from.getLocation(FROM_LOCATION);
+        faceLocation(entity, at.getLocation(AT_LOCATION));
+    }
+
+    public static void faceLocation(Entity entity, Location to) {
+        if (entity.getWorld() != to.getWorld())
+            return;
+        Location fromLocation = entity.getLocation(FROM_LOCATION);
         double xDiff, yDiff, zDiff;
-        xDiff = atLocation.getX() - fromLocation.getX();
-        yDiff = atLocation.getY() - fromLocation.getY();
-        zDiff = atLocation.getZ() - fromLocation.getZ();
+        xDiff = to.getX() - fromLocation.getX();
+        yDiff = to.getY() - fromLocation.getY();
+        zDiff = to.getZ() - fromLocation.getZ();
 
         double distanceXZ = Math.sqrt(xDiff * xDiff + zDiff * zDiff);
         double distanceY = Math.sqrt(distanceXZ * distanceXZ + yDiff * yDiff);
@@ -57,7 +62,11 @@ public class Util {
         if (zDiff < 0.0)
             yaw += Math.abs(180 - yaw) * 2;
 
-        NMS.look(from, (float) yaw - 90, (float) pitch);
+        NMS.look(entity, (float) yaw - 90, (float) pitch);
+    }
+
+    public static Location getEyeLocation(Entity entity) {
+        return entity instanceof LivingEntity ? ((LivingEntity) entity).getEyeLocation() : entity.getLocation();
     }
 
     public static Random getFastRandom() {
@@ -74,6 +83,19 @@ public class Util {
         return raw.substring(start, end);
     }
 
+    public static boolean isAlwaysFlyable(EntityType type) {
+        switch (type) {
+            case BAT:
+            case BLAZE:
+            case GHAST:
+            case ENDER_DRAGON:
+            case WITHER:
+                return true;
+            default:
+                return false;
+        }
+    }
+
     public static boolean isLoaded(Location location) {
         if (location.getWorld() == null)
             return false;
@@ -83,7 +105,7 @@ public class Util {
     }
 
     public static String listValuesPretty(Enum<?>[] values) {
-        return Joiner.on(", ").join(values).toLowerCase().replace('_', ' ');
+        return "<e>" + Joiner.on("<a>, <e>").join(values).toLowerCase().replace('_', ' ');
     }
 
     public static boolean locationWithinRange(Location current, Location target, double range) {
@@ -95,25 +117,24 @@ public class Util {
     }
 
     public static EntityType matchEntityType(String toMatch) {
-        EntityType type = EntityType.fromName(toMatch);
-        if (type != null)
-            return type;
         return matchEnum(EntityType.values(), toMatch);
     }
 
     public static <T extends Enum<?>> T matchEnum(T[] values, String toMatch) {
-        T type = null;
+        toMatch = toMatch.toLowerCase().replace('-', '_').replace(' ', '_');
         for (T check : values) {
-            String name = check.name();
-            if (name.matches(toMatch) || name.equalsIgnoreCase(toMatch)
-                    || name.replace("_", "").equalsIgnoreCase(toMatch)
-                    || name.replace('_', '-').equalsIgnoreCase(toMatch)
-                    || name.replace('_', ' ').equalsIgnoreCase(toMatch) || name.startsWith(toMatch)) {
-                type = check;
-                break;
+            if (toMatch.equals(check.name().toLowerCase()) || toMatch.equals("item")
+                    && check == EntityType.DROPPED_ITEM) {
+                return check; // check for an exact match first
             }
         }
-        return type;
+        for (T check : values) {
+            String name = check.name().toLowerCase();
+            if (name.replace("_", "").equals(toMatch) || name.matches(toMatch) || name.startsWith(toMatch)) {
+                return check;
+            }
+        }
+        return null;
     }
 
     public static boolean matchesItemInHand(Player player, String setting) {

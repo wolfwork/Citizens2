@@ -1,5 +1,6 @@
 package net.citizensnpcs.npc.ai;
 
+import net.citizensnpcs.Settings.Setting;
 import net.citizensnpcs.api.ai.NavigatorParameters;
 import net.citizensnpcs.api.ai.TargetType;
 import net.citizensnpcs.api.ai.event.CancelReason;
@@ -10,8 +11,9 @@ import net.citizensnpcs.api.astar.pathfinder.VectorGoal;
 import net.citizensnpcs.api.astar.pathfinder.VectorNode;
 import net.citizensnpcs.api.npc.NPC;
 import net.citizensnpcs.util.NMS;
-import net.minecraft.server.v1_6_R2.EntityLiving;
+import net.citizensnpcs.util.Util;
 
+import org.bukkit.Effect;
 import org.bukkit.Location;
 import org.bukkit.util.Vector;
 
@@ -27,13 +29,17 @@ public class AStarNavigationStrategy extends AbstractPathStrategy {
         this.params = params;
         this.destination = dest;
         this.npc = npc;
-        Location location = npc.getBukkitEntity().getEyeLocation();
-        plan = ASTAR.runFully(new VectorGoal(dest, (float) params.distanceMargin()), new VectorNode(location,
-                new ChunkBlockSource(location, params.range()), params.examiners()), 50000);
+        Location location = Util.getEyeLocation(npc.getEntity());
+        VectorGoal goal = new VectorGoal(dest, (float) params.pathDistanceMargin());
+        plan = ASTAR.runFully(goal, new VectorNode(goal, location, new ChunkBlockSource(location, params.range()),
+                params.examiners()), 50000);
         if (plan == null || plan.isComplete()) {
             setCancelReason(CancelReason.STUCK);
         } else {
             vector = plan.getCurrentVector();
+            if (Setting.DEBUG_PATHFINDING.asBoolean()) {
+                plan.debug();
+            }
         }
     }
 
@@ -44,6 +50,9 @@ public class AStarNavigationStrategy extends AbstractPathStrategy {
 
     @Override
     public void stop() {
+        if (plan != null && Setting.DEBUG_PATHFINDING.asBoolean()) {
+            plan.debugEnd();
+        }
         plan = null;
     }
 
@@ -52,25 +61,30 @@ public class AStarNavigationStrategy extends AbstractPathStrategy {
         if (getCancelReason() != null || plan == null || plan.isComplete()) {
             return true;
         }
-        if (npc.getBukkitEntity().getLocation(NPC_LOCATION).toVector().distanceSquared(vector) <= params
-                .distanceMargin()) {
+        if (npc.getEntity().getLocation(NPC_LOCATION).toVector().distanceSquared(vector) <= params.distanceMargin()) {
             plan.update(npc);
             if (plan.isComplete()) {
                 return true;
             }
             vector = plan.getCurrentVector();
         }
-        EntityLiving handle = NMS.getHandle(npc.getBukkitEntity());
+        net.minecraft.server.v1_7_R2.Entity handle = NMS.getHandle(npc.getEntity());
         double dX = vector.getBlockX() - handle.locX;
         double dZ = vector.getBlockZ() - handle.locZ;
         double dY = vector.getY() - handle.locY;
         double xzDistance = dX * dX + dZ * dZ;
         double distance = xzDistance + dY * dY;
-        if (distance > 0 && dY > 0 && xzDistance <= 4.205) {
-            // 2.75 -> 4.205 (allow for diagonal jumping)
-            NMS.setShouldJump(npc.getBukkitEntity());
+        if (Setting.DEBUG_PATHFINDING.asBoolean()) {
+            npc.getEntity().getWorld()
+                    .playEffect(vector.toLocation(npc.getEntity().getWorld()), Effect.ENDER_SIGNAL, 0);
         }
-        NMS.setDestination(npc.getBukkitEntity(), vector.getX(), vector.getY(), vector.getZ(), params.speed());
+        if (distance > 0 && dY > 0 && dY < 1 && xzDistance <= 2.75) {
+            NMS.setShouldJump(npc.getEntity());
+        }
+        double destX = vector.getX() + 0.5, destZ = vector.getZ() + 0.5;
+        NMS.setDestination(npc.getEntity(), destX, vector.getY(), destZ, params.speed());
+        params.run();
+        plan.run(npc);
         return false;
     }
 

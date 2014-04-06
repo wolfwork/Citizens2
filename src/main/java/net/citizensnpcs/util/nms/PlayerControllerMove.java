@@ -2,9 +2,9 @@ package net.citizensnpcs.util.nms;
 
 import net.citizensnpcs.npc.entity.EntityHumanNPC;
 import net.citizensnpcs.util.NMS;
-import net.minecraft.server.v1_6_R2.AttributeInstance;
-import net.minecraft.server.v1_6_R2.GenericAttributes;
-import net.minecraft.server.v1_6_R2.MathHelper;
+import net.minecraft.server.v1_7_R2.AttributeInstance;
+import net.minecraft.server.v1_7_R2.GenericAttributes;
+import net.minecraft.server.v1_7_R2.MathHelper;
 
 public class PlayerControllerMove {
     private final EntityHumanNPC a;
@@ -52,7 +52,7 @@ public class PlayerControllerMove {
     }
 
     public void c() {
-        this.a.bf = 0F;
+        this.a.be = 0;
         if (this.f) {
             this.f = false;
             int i = MathHelper.floor(this.a.boundingBox.b + 0.5D);
@@ -60,9 +60,8 @@ public class PlayerControllerMove {
             double d1 = this.d - this.a.locZ;
             double d2 = this.c - i;
             double d3 = d0 * d0 + d2 * d2 + d1 * d1;
-
             if (d3 >= 2.500000277905201E-7D) {
-                float f = (float) (Math.atan2(d1, d0) * 180.0D / 3.1415927410125732D) - 90.0F;
+                float f = (float) (Math.atan2(d1, d0) * 180.0D / Math.PI) - 90.0F;
 
                 this.a.yaw = this.a(this.a.yaw, f, 30.0F);
                 NMS.setHeadYaw(a, this.a.yaw);
@@ -70,7 +69,7 @@ public class PlayerControllerMove {
                 speed.setValue(0.1D * this.e);
                 float movement = (float) (this.e * speed.getValue()) * 10;
                 this.a.i(movement);
-                this.a.bf = movement;
+                this.a.be = movement;
                 if (d2 > 0.0D && d0 * d0 + d1 * d1 < 1.0D) {
                     this.a.getControllerJump().a();
                 }

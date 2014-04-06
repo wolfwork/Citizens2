@@ -2,7 +2,6 @@ package net.citizensnpcs;
 
 import java.io.File;
 import java.io.IOException;
-import java.sql.SQLException;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
@@ -29,7 +28,6 @@ import net.citizensnpcs.api.scripting.ObjectProvider;
 import net.citizensnpcs.api.scripting.ScriptCompiler;
 import net.citizensnpcs.api.trait.Trait;
 import net.citizensnpcs.api.trait.TraitFactory;
-import net.citizensnpcs.api.util.DatabaseStorage;
 import net.citizensnpcs.api.util.Messaging;
 import net.citizensnpcs.api.util.NBTStorage;
 import net.citizensnpcs.api.util.Storage;
@@ -37,7 +35,6 @@ import net.citizensnpcs.api.util.Translator;
 import net.citizensnpcs.api.util.YamlStorage;
 import net.citizensnpcs.commands.AdminCommands;
 import net.citizensnpcs.commands.EditorCommands;
-import net.citizensnpcs.commands.HelpCommands;
 import net.citizensnpcs.commands.NPCCommands;
 import net.citizensnpcs.commands.TemplateCommands;
 import net.citizensnpcs.commands.TraitCommands;
@@ -90,16 +87,9 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
     private NPCDataStore createStorage(File folder) {
         Storage saves = null;
         String type = Setting.STORAGE_TYPE.asString();
-        if (type.equalsIgnoreCase("db") || type.equalsIgnoreCase("database")) {
-            try {
-                saves = new DatabaseStorage(Setting.DATABASE_DRIVER.asString(), Setting.DATABASE_URL.asString(),
-                        Setting.DATABASE_USERNAME.asString(), Setting.DATABASE_PASSWORD.asString());
-            } catch (SQLException e) {
-                e.printStackTrace();
-                Messaging.logTr(Messages.DATABASE_CONNECTION_FAILED);
-            }
-        } else if (type.equalsIgnoreCase("nbt")) {
-            saves = new NBTStorage(folder + File.separator + Setting.STORAGE_FILE.asString(), "Citizens NPC Storage");
+        if (type.equalsIgnoreCase("nbt")) {
+            saves = new NBTStorage(new File(folder + File.separator + Setting.STORAGE_FILE.asString()),
+                    "Citizens NPC Storage");
         }
         if (saves == null)
             saves = new YamlStorage(new File(folder, Setting.STORAGE_FILE.asString()), "Citizens NPC Storage");
@@ -114,8 +104,9 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
             NPC npc = itr.next();
             try {
                 npc.despawn(DespawnReason.REMOVAL);
-                for (Trait trait : npc.getTraits())
+                for (Trait trait : npc.getTraits()) {
                     trait.onRemove();
+                }
             } catch (Throwable e) {
                 e.printStackTrace();
                 // ensure that all entities are despawned
@@ -167,6 +158,37 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
     @Override
     public NPCRegistry getNamedNPCRegistry(String name) {
         return storedRegistries.get(name);
+    }
+
+    @Override
+    public Iterable<NPCRegistry> getNPCRegistries() {
+        return new Iterable<NPCRegistry>() {
+            @Override
+            public Iterator<NPCRegistry> iterator() {
+                return new Iterator<NPCRegistry>() {
+                    Iterator<NPCRegistry> stored;
+
+                    @Override
+                    public boolean hasNext() {
+                        return stored == null ? true : stored.hasNext();
+                    }
+
+                    @Override
+                    public NPCRegistry next() {
+                        if (stored == null) {
+                            stored = storedRegistries.values().iterator();
+                            return npcRegistry;
+                        }
+                        return stored.next();
+                    }
+
+                    @Override
+                    public void remove() {
+                        throw new UnsupportedOperationException();
+                    }
+                };
+            }
+        };
     }
 
     @Override
@@ -302,7 +324,6 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
         // Register command classes
         commands.register(AdminCommands.class);
         commands.register(EditorCommands.class);
-        commands.register(HelpCommands.class);
         commands.register(NPCCommands.class);
         commands.register(TemplateCommands.class);
         commands.register(TraitCommands.class);
@@ -330,13 +351,13 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
     }
 
     private void scheduleSaveTask(int delay) {
-        Bukkit.getScheduler().scheduleSyncDelayedTask(this, new Runnable() {
+        Bukkit.getScheduler().scheduleSyncRepeatingTask(this, new Runnable() {
             @Override
             public void run() {
                 storeNPCs();
                 saves.saveToDisk();
             }
-        });
+        }, delay, delay);
     }
 
     private void setupEconomy() {
@@ -408,8 +429,9 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
     public void storeNPCs() {
         if (saves == null)
             return;
-        for (NPC npc : npcRegistry)
+        for (NPC npc : npcRegistry) {
             saves.store(npc);
+        }
     }
 
     public void storeNPCs(CommandContext args) {
@@ -417,8 +439,9 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
         boolean async = args.hasFlag('a');
         if (async) {
             saves.saveToDisk();
-        } else
+        } else {
             saves.saveToDiskImmediate();
+        }
     }
 
     private boolean suggestClosestModifier(CommandSender sender, String command, String modifier) {
@@ -431,5 +454,5 @@ public class Citizens extends JavaPlugin implements CitizensPlugin {
         return false;
     }
 
-    private static final String COMPATIBLE_MC_VERSION = "1.6.2";
+    private static final String COMPATIBLE_MC_VERSION = "1.7.5";
 }

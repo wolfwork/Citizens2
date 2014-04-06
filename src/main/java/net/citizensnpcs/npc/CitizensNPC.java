@@ -1,9 +1,7 @@
 package net.citizensnpcs.npc;
 
 import java.util.Collection;
-import java.util.Set;
-
-import javax.annotation.Nullable;
+import java.util.UUID;
 
 import net.citizensnpcs.NPCNeedsRespawnEvent;
 import net.citizensnpcs.Settings.Setting;
@@ -13,8 +11,10 @@ import net.citizensnpcs.api.event.DespawnReason;
 import net.citizensnpcs.api.event.NPCDespawnEvent;
 import net.citizensnpcs.api.event.NPCSpawnEvent;
 import net.citizensnpcs.api.npc.AbstractNPC;
-import net.citizensnpcs.api.persistence.PersistenceLoader;
+import net.citizensnpcs.api.npc.NPC;
+import net.citizensnpcs.api.npc.NPCRegistry;
 import net.citizensnpcs.api.trait.Trait;
+import net.citizensnpcs.api.trait.trait.MobType;
 import net.citizensnpcs.api.trait.trait.Spawned;
 import net.citizensnpcs.api.util.DataKey;
 import net.citizensnpcs.api.util.Messaging;
@@ -23,29 +23,27 @@ import net.citizensnpcs.trait.CurrentLocation;
 import net.citizensnpcs.util.Messages;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
-import net.minecraft.server.v1_6_R2.EntityLiving;
+import net.minecraft.server.v1_7_R2.PacketPlayOutEntityTeleport;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.craftbukkit.v1_6_R2.entity.CraftLivingEntity;
+import org.bukkit.craftbukkit.v1_7_R2.entity.CraftEntity;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
+import org.bukkit.entity.Player;
 import org.bukkit.event.entity.CreatureSpawnEvent.SpawnReason;
 import org.bukkit.metadata.FixedMetadataValue;
 
-import com.google.common.base.Function;
 import com.google.common.base.Preconditions;
-import com.google.common.base.Splitter;
 import com.google.common.base.Throwables;
-import com.google.common.collect.Iterables;
-import com.google.common.collect.Sets;
 
 public class CitizensNPC extends AbstractNPC {
     private EntityController entityController;
     private final CitizensNavigator navigator = new CitizensNavigator(this);
 
-    public CitizensNPC(int id, String name, EntityController entityController) {
-        super(id, name);
+    public CitizensNPC(UUID uuid, int id, String name, EntityController entityController, NPCRegistry registry) {
+        super(uuid, id, name, registry);
         Preconditions.checkNotNull(entityController);
         this.entityController = entityController;
     }
@@ -62,23 +60,32 @@ public class CitizensNPC extends AbstractNPC {
             event.setCancelled(Setting.KEEP_CHUNKS_LOADED.asBoolean());
         Bukkit.getPluginManager().callEvent(event);
         if (event.isCancelled()) {
-            getBukkitEntity().getLocation().getChunk().load();
+            getEntity().getLocation().getChunk().load();
             Messaging.debug("Couldn't despawn", getId(), "due to despawn event cancellation. Force loaded chunk.");
             return false;
         }
         boolean keepSelected = getTrait(Spawned.class).shouldSpawn();
-        if (!keepSelected)
+        if (!keepSelected) {
             data().remove("selectors");
-        for (Trait trait : traits.values())
+        }
+        for (Trait trait : traits.values()) {
             trait.onDespawn();
+        }
         navigator.onDespawn();
         entityController.remove();
         return true;
     }
 
     @Override
-    public LivingEntity getBukkitEntity() {
-        return entityController.getBukkitEntity();
+    public void faceLocation(Location location) {
+        if (!isSpawned())
+            return;
+        Util.faceLocation(getEntity(), location);
+    }
+
+    @Override
+    public Entity getEntity() {
+        return entityController == null ? null : entityController.getBukkitEntity();
     }
 
     @Override
@@ -88,48 +95,18 @@ public class CitizensNPC extends AbstractNPC {
 
     @Override
     public Location getStoredLocation() {
-        return isSpawned() ? getBukkitEntity().getLocation() : getTrait(CurrentLocation.class).getLocation();
+        return isSpawned() ? getEntity().getLocation() : getTrait(CurrentLocation.class).getLocation();
     }
 
     @Override
-    public boolean isSpawned() {
-        return getBukkitEntity() != null;
+    public boolean isFlyable() {
+        updateFlyableState();
+        return super.isFlyable();
     }
 
     @Override
     public void load(final DataKey root) {
-        metadata.loadFrom(root.getRelative("metadata"));
-        // Load traits
-
-        String traitNames = root.getString("traitnames");
-        Set<DataKey> keys = Sets.newHashSet(root.getRelative("traits").getSubKeys());
-        Iterables.addAll(keys, Iterables.transform(Splitter.on(',').split(traitNames), new Function<String, DataKey>() {
-            @Override
-            public DataKey apply(@Nullable String input) {
-                return root.getRelative("traits." + input);
-            }
-        }));
-        for (DataKey traitKey : keys) {
-            if (traitKey.keyExists("enabled") && !traitKey.getBoolean("enabled")
-                    && traitKey.getRaw("enabled") instanceof Boolean) {
-                // we want to avoid coercion here as YAML can coerce map
-                // existence to boolean
-                continue;
-            }
-            Class<? extends Trait> clazz = CitizensAPI.getTraitFactory().getTraitClass(traitKey.name());
-            Trait trait;
-            if (hasTrait(clazz)) {
-                trait = getTrait(clazz);
-            } else {
-                trait = CitizensAPI.getTraitFactory().getTrait(clazz);
-                if (trait == null) {
-                    Messaging.severeTr(Messages.SKIPPING_BROKEN_TRAIT, traitKey.name(), getId());
-                    continue;
-                }
-                addTrait(trait);
-            }
-            loadTrait(trait, traitKey);
-        }
+        super.load(root);
 
         // Spawn the NPC
         CurrentLocation spawnLocation = getTrait(CurrentLocation.class);
@@ -137,15 +114,6 @@ public class CitizensNPC extends AbstractNPC {
             spawn(spawnLocation.getLocation());
 
         navigator.load(root.getRelative("navigator"));
-    }
-
-    private void loadTrait(Trait trait, DataKey traitKey) {
-        try {
-            trait.load(traitKey);
-            PersistenceLoader.load(trait, traitKey);
-        } catch (Throwable ex) {
-            Messaging.logTr(Messages.TRAIT_LOAD_FAILED, traitKey.name(), getId());
-        }
     }
 
     @Override
@@ -167,13 +135,19 @@ public class CitizensNPC extends AbstractNPC {
         boolean wasSpawned = isSpawned();
         Location prev = null;
         if (wasSpawned) {
-            prev = getBukkitEntity().getLocation();
+            prev = getEntity().getLocation();
             despawn(DespawnReason.PENDING_RESPAWN);
         }
         entityController = newController;
         if (wasSpawned) {
             spawn(prev);
         }
+    }
+
+    @Override
+    public void setFlyable(boolean flyable) {
+        super.setFlyable(flyable);
+        updateFlyableState();
     }
 
     @Override
@@ -184,16 +158,18 @@ public class CitizensNPC extends AbstractNPC {
             return false;
         }
 
+        at = at.clone();
         entityController.spawn(at, this);
-        EntityLiving mcEntity = ((CraftLivingEntity) getBukkitEntity()).getHandle();
+        net.minecraft.server.v1_7_R2.Entity mcEntity = ((CraftEntity) getEntity()).getHandle();
         boolean couldSpawn = !Util.isLoaded(at) ? false : mcEntity.world.addEntity(mcEntity, SpawnReason.CUSTOM);
         mcEntity.setPositionRotation(at.getX(), at.getY(), at.getZ(), at.getYaw(), at.getPitch());
         if (!couldSpawn) {
-            Messaging.debug("Retrying spawn of", getId(), "later due to chunk being unloaded.");
+            Messaging.debug("Retrying spawn of", getId(), "later due to chunk being unloaded.",
+                    Util.isLoaded(at) ? "Util.isLoaded true" : "Util.isLoaded false");
             // we need to wait for a chunk load before trying to spawn
             entityController.remove();
             Bukkit.getPluginManager().callEvent(new NPCNeedsRespawnEvent(this, at));
-            return true;
+            return false;
         }
 
         NMS.setHeadYaw(mcEntity, at.getYaw());
@@ -205,7 +181,7 @@ public class CitizensNPC extends AbstractNPC {
             return false;
         }
 
-        getBukkitEntity().setMetadata(NPC_METADATA_MARKER, new FixedMetadataValue(CitizensAPI.getPlugin(), true));
+        getEntity().setMetadata(NPC_METADATA_MARKER, new FixedMetadataValue(CitizensAPI.getPlugin(), true));
 
         // Set the spawned state
         getTrait(CurrentLocation.class).setLocation(at);
@@ -223,8 +199,14 @@ public class CitizensNPC extends AbstractNPC {
                 ex.printStackTrace();
             }
         }
-        getBukkitEntity().setRemoveWhenFarAway(false);
-        getBukkitEntity().setCustomName(getFullName());
+        if (getEntity() instanceof LivingEntity) {
+            LivingEntity entity = (LivingEntity) getEntity();
+            entity.setRemoveWhenFarAway(false);
+            entity.setCustomName(getFullName());
+            if (NMS.getStepHeight(entity) < 1) {
+                NMS.setStepHeight(NMS.getHandle(entity), 1);
+            }
+        }
         return true;
     }
 
@@ -233,8 +215,21 @@ public class CitizensNPC extends AbstractNPC {
         try {
             super.update();
             if (isSpawned()) {
-                NMS.trySwim(getBukkitEntity());
+                if (data().get(NPC.SWIMMING_METADATA, true)) {
+                    NMS.trySwim(getEntity());
+                }
                 navigator.run();
+
+                if (!getNavigator().isNavigating()
+                        && getEntity().getWorld().getFullTime() % Setting.PACKET_UPDATE_DELAY.asInt() == 0) {
+                    Player player = getEntity() instanceof Player ? (Player) getEntity() : null;
+                    NMS.sendPacketNearby(player, getStoredLocation(),
+                            new PacketPlayOutEntityTeleport(NMS.getHandle(getEntity())));
+                }
+
+                if (getEntity() instanceof LivingEntity) {
+                    ((LivingEntity) getEntity()).setCustomNameVisible(data().get(NPC.NAMEPLATE_VISIBLE_METADATA, true));
+                }
             }
         } catch (Exception ex) {
             Throwable error = Throwables.getRootCause(ex);
@@ -243,6 +238,14 @@ public class CitizensNPC extends AbstractNPC {
         }
     }
 
-    private static final String NPC_METADATA_MARKER = "NPC";
+    private void updateFlyableState() {
+        EntityType type = getTrait(MobType.class).getType();
+        if (type == null)
+            return;
+        if (Util.isAlwaysFlyable(type)) {
+            data().setPersistent(NPC.FLYABLE_METADATA, true);
+        }
+    }
 
+    private static final String NPC_METADATA_MARKER = "NPC";
 }

@@ -48,10 +48,11 @@ public class EquipmentEditor extends Editor {
                 || !npc.equals(CitizensAPI.getNPCRegistry().getNPC(event.getRightClicked())))
             return;
 
-        Equipper equipper = EQUIPPERS.get(npc.getBukkitEntity().getType());
+        Equipper equipper = EQUIPPERS.get(npc.getEntity().getType());
         if (equipper == null)
             equipper = new GenericEquipper();
         equipper.equip(event.getPlayer(), npc);
+        event.setCancelled(true);
     }
 
     private static final Map<EntityType, Equipper> EQUIPPERS = Maps.newEnumMap(EntityType.class);
@@ -59,5 +60,6 @@ public class EquipmentEditor extends Editor {
         EQUIPPERS.put(EntityType.PIG, new PigEquipper());
         EQUIPPERS.put(EntityType.SHEEP, new SheepEquipper());
         EQUIPPERS.put(EntityType.ENDERMAN, new EndermanEquipper());
+        EQUIPPERS.put(EntityType.HORSE, new HorseEquipper());
     }
 }

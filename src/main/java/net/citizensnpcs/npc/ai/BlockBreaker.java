@@ -2,18 +2,22 @@ package net.citizensnpcs.npc.ai;
 
 import net.citizensnpcs.api.ai.tree.BehaviorGoalAdapter;
 import net.citizensnpcs.api.ai.tree.BehaviorStatus;
+import net.citizensnpcs.api.npc.NPC;
 import net.citizensnpcs.util.PlayerAnimation;
-import net.minecraft.server.v1_6_R2.Block;
-import net.minecraft.server.v1_6_R2.Enchantment;
-import net.minecraft.server.v1_6_R2.EnchantmentManager;
-import net.minecraft.server.v1_6_R2.EntityLiving;
-import net.minecraft.server.v1_6_R2.EntityPlayer;
-import net.minecraft.server.v1_6_R2.ItemStack;
-import net.minecraft.server.v1_6_R2.Material;
-import net.minecraft.server.v1_6_R2.MobEffectList;
+import net.citizensnpcs.util.Util;
+import net.minecraft.server.v1_7_R2.Block;
+import net.minecraft.server.v1_7_R2.Blocks;
+import net.minecraft.server.v1_7_R2.Enchantment;
+import net.minecraft.server.v1_7_R2.EnchantmentManager;
+import net.minecraft.server.v1_7_R2.EntityLiving;
+import net.minecraft.server.v1_7_R2.EntityPlayer;
+import net.minecraft.server.v1_7_R2.ItemStack;
+import net.minecraft.server.v1_7_R2.Material;
+import net.minecraft.server.v1_7_R2.MobEffectList;
 
-import org.bukkit.craftbukkit.v1_6_R2.entity.CraftLivingEntity;
-import org.bukkit.craftbukkit.v1_6_R2.inventory.CraftItemStack;
+import org.bukkit.Location;
+import org.bukkit.craftbukkit.v1_7_R2.entity.CraftLivingEntity;
+import org.bukkit.craftbukkit.v1_7_R2.inventory.CraftItemStack;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 
@@ -22,7 +26,8 @@ public class BlockBreaker extends BehaviorGoalAdapter {
     private int currentDamage;
     private int currentTick;
     private final EntityLiving entity;
-    private boolean isDigging;
+    private boolean isDigging = true;
+    private final Location location;
     private int startDigTick;
     private final int x, y, z;
 
@@ -31,6 +36,7 @@ public class BlockBreaker extends BehaviorGoalAdapter {
         this.x = target.getX();
         this.y = target.getY();
         this.z = target.getZ();
+        this.location = target.getLocation();
         this.startDigTick = (int) (System.currentTimeMillis() / 50);
         this.configuration = config;
     }
@@ -39,17 +45,17 @@ public class BlockBreaker extends BehaviorGoalAdapter {
         return Math.pow(entity.locX - x, 2) + Math.pow(entity.locY - y, 2) + Math.pow(entity.locZ - z, 2);
     }
 
-    private net.minecraft.server.v1_6_R2.ItemStack getCurrentItem() {
+    private net.minecraft.server.v1_7_R2.ItemStack getCurrentItem() {
         return configuration.item() != null ? CraftItemStack.asNMSCopy(configuration.item()) : entity.getEquipment(0);
     }
 
     private float getStrength(Block block) {
-        float base = block.l(null, 0, 0, 0);
+        float base = block.f(null, 0, 0, 0);
         return base < 0.0F ? 0.0F : (!isDestroyable(block) ? 1.0F / base / 100.0F : strengthMod(block) / base / 30.0F);
     }
 
     private boolean isDestroyable(Block block) {
-        if (block.material.isAlwaysDestroyable()) {
+        if (block.getMaterial().isAlwaysDestroyable()) {
             return true;
         } else {
             ItemStack current = getCurrentItem();
@@ -72,26 +78,37 @@ public class BlockBreaker extends BehaviorGoalAdapter {
 
     @Override
     public BehaviorStatus run() {
+        if (entity.dead) {
+            return BehaviorStatus.FAILURE;
+        }
         if (!isDigging) {
-            reset();
             return BehaviorStatus.SUCCESS;
         }
         currentTick = (int) (System.currentTimeMillis() / 50); // CraftBukkit
         if (configuration.radiusSquared() > 0 && distanceSquared() >= configuration.radiusSquared()) {
             startDigTick = currentTick;
+            if (entity instanceof NPCHolder) {
+                NPC npc = ((NPCHolder) entity).getNPC();
+                if (!npc.getNavigator().isNavigating()) {
+                    npc.getNavigator()
+                    .setTarget(entity.world.getWorld().getBlockAt(x, y, z).getLocation().add(0, 1, 0));
+                }
+            }
             return BehaviorStatus.RUNNING;
         }
-        if (entity instanceof EntityPlayer)
+        Util.faceLocation(entity.getBukkitEntity(), location);
+        if (entity instanceof EntityPlayer) {
             PlayerAnimation.ARM_SWING.play((Player) entity.getBukkitEntity());
-        Block block = Block.byId[entity.world.getTypeId(x, y, z)];
-        if (block == null) {
+        }
+        Block block = entity.world.getType(x, y, z);
+        if (block == null || block == Blocks.AIR) {
             return BehaviorStatus.SUCCESS;
         } else {
             int tickDifference = currentTick - startDigTick;
-            float damage = getStrength(block) * (tickDifference + 1);
+            float damage = getStrength(block) * (tickDifference + 1) * configuration.blockStrengthModifier();
             if (damage >= 1F) {
                 entity.world.getWorld().getBlockAt(x, y, z)
-                        .breakNaturally(CraftItemStack.asCraftMirror(getCurrentItem()));
+                .breakNaturally(CraftItemStack.asCraftMirror(getCurrentItem()));
                 return BehaviorStatus.SUCCESS;
             }
             int modifiedDamage = (int) (damage * 10.0F);
@@ -104,12 +121,12 @@ public class BlockBreaker extends BehaviorGoalAdapter {
     }
 
     private void setBlockDamage(int modifiedDamage) {
-        entity.world.f(entity.id, x, y, z, modifiedDamage);
+        entity.world.d(entity.getId(), x, y, z, modifiedDamage);
     }
 
     @Override
     public boolean shouldExecute() {
-        return org.bukkit.Material.getMaterial(entity.world.getTypeId(x, y, z)) != null;
+        return entity.world.getType(x, y, z) != Blocks.AIR;
     }
 
     private float strengthMod(Block block) {
@@ -144,7 +161,17 @@ public class BlockBreaker extends BehaviorGoalAdapter {
     public static class Configuration {
         private Runnable callback;
         private org.bukkit.inventory.ItemStack itemStack;
-        private double radius;
+        private float modifier = 1;
+        private double radius = 0;
+
+        public float blockStrengthModifier() {
+            return modifier;
+        }
+
+        public Configuration blockStrengthModifier(float modifier) {
+            this.modifier = modifier;
+            return this;
+        }
 
         private Runnable callback() {
             return callback;
@@ -174,8 +201,6 @@ public class BlockBreaker extends BehaviorGoalAdapter {
         }
     }
 
-    private static final Configuration EMPTY = new Configuration();
-
     public static BlockBreaker create(LivingEntity entity, org.bukkit.block.Block target) {
         return createWithConfiguration(entity, target, EMPTY);
     }
@@ -184,4 +209,6 @@ public class BlockBreaker extends BehaviorGoalAdapter {
             Configuration config) {
         return new BlockBreaker(entity, target, config);
     }
+
+    private static final Configuration EMPTY = new Configuration();
 }

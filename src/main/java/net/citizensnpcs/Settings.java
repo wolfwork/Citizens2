@@ -33,11 +33,12 @@ public class Settings {
 
     public void reload() {
         config.load();
-        for (Setting setting : Setting.values())
-            if (root.keyExists(setting.path))
+        for (Setting setting : Setting.values()) {
+            if (root.keyExists(setting.path)) {
                 setting.loadFromKey(root);
+            }
+        }
         updateMessagingSettings();
-
         save();
     }
 
@@ -67,6 +68,7 @@ public class Settings {
         DATABASE_URL("storage.database.url", ""),
         DATABASE_USERNAME("storage.database.username", ""),
         DEBUG_MODE("general.debug-mode", false),
+        DEBUG_PATHFINDING("general.debug-pathfinding", false),
         DEFAULT_LOOK_CLOSE("npc.default.look-close.enabled", false),
         DEFAULT_LOOK_CLOSE_RANGE("npc.default.look-close.range", 5),
         DEFAULT_NPC_LIMIT("npc.limits.default-limit", 10),
@@ -90,9 +92,12 @@ public class Settings {
         LOCALE("general.translation.locale", ""),
         MAX_NPC_LIMIT_CHECKS("npc.limits.max-permission-checks", 100),
         MAX_SPEED("npc.limits.max-speed", 100),
+        MAX_TEXT_RANGE("npc.chat.options.max-text-range", 500),
         MESSAGE_COLOUR("general.color-scheme.message", "<a>"),
+        NEW_PATHFINDER_OPENS_DOORS("npc.pathfinding.new-finder-open-doors", false),
         NPC_ATTACK_DISTANCE("npc.pathfinding.attack-range", 1.75 * 1.75),
         NPC_COST("economy.npc.cost", 100D),
+        PACKET_UPDATE_DELAY("npc.packets.update-delay", 30),
         QUICK_SELECT("npc.selection.quick-select", false),
         REMOVE_PLAYERS_FROM_PLAYER_LIST("npc.player.remove-from-list", true),
         SAVE_TASK_DELAY("storage.save-task.delay", 20 * 60 * 60),
@@ -106,7 +111,7 @@ public class Settings {
         TALK_CLOSE_MINIMUM_COOLDOWN("npc.text.min-talk-cooldown", 10),
         TALK_ITEM("npc.text.talk-item", "340"),
         USE_BOAT_CONTROLS("npc.controllable.use-boat-controls", true),
-        USE_NEW_PATHFINDER("npc.pathfinding.use-new-finder", true);
+        USE_NEW_PATHFINDER("npc.pathfinding.use-new-finder", false);
 
         protected String path;
         protected Object value;

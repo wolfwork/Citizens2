@@ -13,6 +13,7 @@ import net.citizensnpcs.api.event.NPCCombustByEntityEvent;
 import net.citizensnpcs.api.event.NPCCombustEvent;
 import net.citizensnpcs.api.event.NPCDamageByBlockEvent;
 import net.citizensnpcs.api.event.NPCDamageByEntityEvent;
+import net.citizensnpcs.api.event.NPCDamageEntityEvent;
 import net.citizensnpcs.api.event.NPCDamageEvent;
 import net.citizensnpcs.api.event.NPCDeathEvent;
 import net.citizensnpcs.api.event.NPCDespawnEvent;
@@ -34,7 +35,6 @@ import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.Location;
 import org.bukkit.entity.EntityType;
-import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
@@ -48,7 +48,6 @@ import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityTargetEvent;
-import org.bukkit.event.entity.EntityTeleportEvent;
 import org.bukkit.event.player.PlayerChangedWorldEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerQuitEvent;
@@ -58,6 +57,7 @@ import org.bukkit.event.world.ChunkUnloadEvent;
 import org.bukkit.event.world.WorldLoadEvent;
 import org.bukkit.event.world.WorldUnloadEvent;
 
+import com.google.common.base.Predicates;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.ListMultimap;
@@ -98,7 +98,8 @@ public class EventListen implements Listener {
     }
 
     private Iterable<NPC> getAllNPCs() {
-        return Iterables.<NPC> concat(npcRegistry, Iterables.concat(registries.values()));
+        return Iterables.filter(Iterables.<NPC> concat(npcRegistry, Iterables.concat(registries.values())),
+                Predicates.notNull());
     }
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -111,35 +112,31 @@ public class EventListen implements Listener {
         ChunkCoord coord = toCoord(event.getChunk());
         Location loc = new Location(null, 0, 0, 0);
         for (NPC npc : getAllNPCs()) {
-            if (!npc.isSpawned())
+            if (npc == null || !npc.isSpawned())
                 continue;
-            loc = npc.getBukkitEntity().getLocation(loc);
+            loc = npc.getEntity().getLocation(loc);
             boolean sameChunkCoordinates = coord.z == loc.getBlockZ() >> 4 && coord.x == loc.getBlockX() >> 4;
             if (!sameChunkCoordinates || !event.getWorld().equals(loc.getWorld()))
                 continue;
             if (!npc.despawn(DespawnReason.CHUNK_UNLOAD)) {
                 event.setCancelled(true);
-                Messaging.debug("Cancelled chunk unload at [" + coord.x + "," + coord.z + "]");
+                if (Messaging.isDebugging()) {
+                    Messaging.debug("Cancelled chunk unload at [" + coord.x + "," + coord.z + "]");
+                }
                 respawnAllFromCoord(coord);
                 return;
             }
             toRespawn.put(coord, npc);
-            Messaging.debug("Despawned id", npc.getId(), "due to chunk unload at [" + coord.x + "," + coord.z + "]");
+            if (Messaging.isDebugging()) {
+                Messaging
+                .debug("Despawned id", npc.getId(), "due to chunk unload at [" + coord.x + "," + coord.z + "]");
+            }
         }
     }
 
     @EventHandler(ignoreCancelled = true)
     public void onCommandSenderCreateNPC(CommandSenderCreateNPCEvent event) {
         checkCreationEvent(event);
-    }
-
-    @EventHandler(ignoreCancelled = true)
-    public void onEntityChangedWorld(EntityTeleportEvent event) {
-        if (event.getFrom() == null || event.getTo() == null)
-            return;
-        if (event.getFrom().getWorld() == event.getTo().getWorld() || !npcRegistry.isNPC(event.getEntity()))
-            return;
-        NMS.updateNavigationWorld((LivingEntity) event.getEntity(), event.getTo().getWorld());
     }
 
     /*
@@ -163,8 +160,17 @@ public class EventListen implements Listener {
     @EventHandler
     public void onEntityDamage(EntityDamageEvent event) {
         NPC npc = npcRegistry.getNPC(event.getEntity());
-        if (npc == null)
+        if (npc == null) {
+            if (event instanceof EntityDamageByEntityEvent) {
+                npc = npcRegistry.getNPC(((EntityDamageByEntityEvent) event).getDamager());
+                if (npc == null)
+                    return;
+                event.setCancelled(!npc.data().get(NPC.DAMAGE_OTHERS_METADATA, true));
+                NPCDamageEntityEvent damageEvent = new NPCDamageEntityEvent(npc, (EntityDamageByEntityEvent) event);
+                Bukkit.getPluginManager().callEvent(damageEvent);
+            }
             return;
+        }
         event.setCancelled(npc.data().get(NPC.DEFAULT_PROTECTED_METADATA, true));
         if (event instanceof EntityDamageByEntityEvent) {
             NPCDamageByEntityEvent damageEvent = new NPCDamageByEntityEvent(npc, (EntityDamageByEntityEvent) event);
@@ -187,10 +193,11 @@ public class EventListen implements Listener {
     @EventHandler(ignoreCancelled = true)
     public void onEntityDeath(EntityDeathEvent event) {
         final NPC npc = npcRegistry.getNPC(event.getEntity());
-        if (npc == null)
+        if (npc == null) {
             return;
+        }
         Bukkit.getPluginManager().callEvent(new NPCDeathEvent(npc, event));
-        final Location location = npc.getBukkitEntity().getLocation();
+        final Location location = npc.getEntity().getLocation();
         npc.despawn(DespawnReason.DEATH);
 
         if (npc.data().get(NPC.RESPAWN_DELAY_METADATA, -1) >= 0) {
@@ -202,7 +209,7 @@ public class EventListen implements Listener {
                         npc.spawn(location);
                     }
                 }
-            }, delay);
+            }, delay + 2);
         }
     }
 
@@ -225,13 +232,16 @@ public class EventListen implements Listener {
 
     @EventHandler
     public void onNeedsRespawn(NPCNeedsRespawnEvent event) {
-        toRespawn.put(toCoord(event.getSpawnLocation()), event.getNPC());
+        ChunkCoord coord = toCoord(event.getSpawnLocation());
+        if (toRespawn.containsEntry(coord, event.getNPC()))
+            return;
+        toRespawn.put(coord, event.getNPC());
     }
 
     @EventHandler
     public void onNPCDespawn(NPCDespawnEvent event) {
         if (event.getReason() == DespawnReason.PLUGIN || event.getReason() == DespawnReason.REMOVAL) {
-            toRespawn.remove(toCoord(event.getNPC().getBukkitEntity().getLocation()), event.getNPC());
+            toRespawn.remove(toCoord(event.getNPC().getEntity().getLocation()), event.getNPC());
         }
     }
 
@@ -249,7 +259,7 @@ public class EventListen implements Listener {
         checkCreationEvent(event);
     }
 
-    @EventHandler
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
     public void onPlayerInteractEntity(PlayerInteractEntityEvent event) {
         NPC npc = npcRegistry.getNPC(event.getRightClicked());
         if (npc == null) {
@@ -264,6 +274,12 @@ public class EventListen implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onPlayerQuit(PlayerQuitEvent event) {
         Editor.leave(event.getPlayer());
+        if (event.getPlayer().isInsideVehicle()) {
+            NPC npc = npcRegistry.getNPC(event.getPlayer().getVehicle());
+            if (npc != null) {
+                event.getPlayer().leaveVehicle();
+            }
+        }
     }
 
     @EventHandler(ignoreCancelled = true)
@@ -271,7 +287,7 @@ public class EventListen implements Listener {
         if (!npcRegistry.isNPC(event.getEntered()))
             return;
         NPC npc = npcRegistry.getNPC(event.getEntered());
-        if (npc.getBukkitEntity().getType() == EntityType.HORSE && !npc.getTrait(Controllable.class).isEnabled()) {
+        if (npc.getEntity().getType() == EntityType.HORSE && !npc.getTrait(Controllable.class).isEnabled()) {
             event.setCancelled(true);
         }
     }
@@ -289,13 +305,14 @@ public class EventListen implements Listener {
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onWorldUnload(WorldUnloadEvent event) {
         for (NPC npc : getAllNPCs()) {
-            if (!npc.isSpawned() || !npc.getBukkitEntity().getWorld().equals(event.getWorld()))
+            if (npc == null || !npc.isSpawned() || !npc.getEntity().getWorld().equals(event.getWorld()))
                 continue;
             boolean despawned = npc.despawn(DespawnReason.WORLD_UNLOAD);
             if (event.isCancelled() || !despawned) {
                 for (ChunkCoord coord : toRespawn.keySet()) {
-                    if (event.getWorld().getName().equals(coord.worldName))
+                    if (event.getWorld().getName().equals(coord.worldName)) {
                         respawnAllFromCoord(coord);
+                    }
                 }
                 return;
             }
@@ -310,26 +327,32 @@ public class EventListen implements Listener {
             NPC npc = ids.get(i);
             boolean success = spawn(npc);
             if (!success) {
-                Messaging.debug("Couldn't respawn id", npc.getId(), "during chunk event at [" + coord.x + "," + coord.z
-                        + "]");
+                if (Messaging.isDebugging()) {
+                    Messaging.debug("Couldn't respawn id", npc.getId(), "during chunk event at [" + coord.x + ","
+                            + coord.z + "]");
+                }
                 continue;
             }
             ids.remove(i--);
-            Messaging.debug("Spawned id", npc.getId(), "due to chunk event at [" + coord.x + "," + coord.z + "]");
+            if (Messaging.isDebugging()) {
+                Messaging.debug("Spawned id", npc.getId(), "due to chunk event at [" + coord.x + "," + coord.z + "]");
+            }
         }
     }
 
     private boolean spawn(NPC npc) {
         Location spawn = npc.getTrait(CurrentLocation.class).getLocation();
         if (spawn == null) {
-            Messaging.debug("Couldn't find a spawn location for despawned NPC id", npc.getId());
+            if (Messaging.isDebugging()) {
+                Messaging.debug("Couldn't find a spawn location for despawned NPC id", npc.getId());
+            }
             return false;
         }
         return npc.spawn(spawn);
     }
 
     private void storeForRespawn(NPC npc) {
-        toRespawn.put(toCoord(npc.getBukkitEntity().getLocation()), npc);
+        toRespawn.put(toCoord(npc.getEntity().getLocation()), npc);
     }
 
     private ChunkCoord toCoord(Chunk chunk) {
@@ -377,9 +400,7 @@ public class EventListen implements Listener {
         @Override
         public int hashCode() {
             final int prime = 31;
-            int result = prime + ((worldName == null) ? 0 : worldName.hashCode());
-            result = prime * result + x;
-            return prime * result + z;
+            return prime * (prime * (prime + ((worldName == null) ? 0 : worldName.hashCode())) + x) + z;
         }
     }
 }

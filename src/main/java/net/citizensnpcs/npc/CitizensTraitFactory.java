@@ -1,5 +1,6 @@
 package net.citizensnpcs.npc;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -25,6 +26,7 @@ import net.citizensnpcs.trait.HorseModifiers;
 import net.citizensnpcs.trait.LookClose;
 import net.citizensnpcs.trait.NPCSkeletonType;
 import net.citizensnpcs.trait.OcelotModifiers;
+import net.citizensnpcs.trait.PlayerSkin;
 import net.citizensnpcs.trait.Poses;
 import net.citizensnpcs.trait.Powered;
 import net.citizensnpcs.trait.Saddle;
@@ -38,10 +40,12 @@ import net.citizensnpcs.trait.text.Text;
 import net.citizensnpcs.trait.waypoint.Waypoints;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 public class CitizensTraitFactory implements TraitFactory {
+    private final List<TraitInfo> defaultTraits = Lists.newArrayList();
     private final Map<String, TraitInfo> registered = Maps.newHashMap();
 
     public CitizensTraitFactory() {
@@ -56,9 +60,9 @@ public class CitizensTraitFactory implements TraitFactory {
         registerTrait(TraitInfo.create(LookClose.class).withName("lookclose"));
         registerTrait(TraitInfo.create(OcelotModifiers.class).withName("ocelotmodifiers"));
         registerTrait(TraitInfo.create(Owner.class).withName("owner"));
+        registerTrait(TraitInfo.create(PlayerSkin.class).withName("playerskin"));
         registerTrait(TraitInfo.create(Poses.class).withName("poses"));
         registerTrait(TraitInfo.create(Powered.class).withName("powered"));
-        registerTrait(TraitInfo.create(VillagerProfession.class).withName("profession"));
         registerTrait(TraitInfo.create(Saddle.class).withName("saddle"));
         registerTrait(TraitInfo.create(Sheared.class).withName("sheared"));
         registerTrait(TraitInfo.create(NPCSkeletonType.class).withName("skeletontype"));
@@ -66,14 +70,22 @@ public class CitizensTraitFactory implements TraitFactory {
         registerTrait(TraitInfo.create(Spawned.class).withName("spawned"));
         registerTrait(TraitInfo.create(Speech.class).withName("speech"));
         registerTrait(TraitInfo.create(Text.class).withName("text"));
-        registerTrait(TraitInfo.create(MobType.class).withName("type"));
+        registerTrait(TraitInfo.create(MobType.class).withName("type").asDefaultTrait());
         registerTrait(TraitInfo.create(Waypoints.class).withName("waypoints"));
         registerTrait(TraitInfo.create(WoolColor.class).withName("woolcolor"));
         registerTrait(TraitInfo.create(WolfModifiers.class).withName("wolfmodifiers"));
+        registerTrait(TraitInfo.create(VillagerProfession.class).withName("profession"));
         registerTrait(TraitInfo.create(ZombieModifier.class).withName("zombiemodifier"));
 
         for (String trait : registered.keySet()) {
             INTERNAL_TRAITS.add(trait);
+        }
+    }
+
+    @Override
+    public void addDefaultTraits(NPC npc) {
+        for (TraitInfo info : defaultTraits) {
+            npc.addTrait(create(info));
         }
     }
 
@@ -103,8 +115,9 @@ public class CitizensTraitFactory implements TraitFactory {
     @Override
     public <T extends Trait> T getTrait(Class<T> clazz) {
         for (TraitInfo entry : registered.values()) {
-            if (clazz == entry.getTraitClass())
+            if (clazz == entry.getTraitClass()) {
                 return create(entry);
+            }
         }
         return null;
     }
@@ -135,6 +148,9 @@ public class CitizensTraitFactory implements TraitFactory {
         if (registered.containsKey(info.getTraitName()))
             throw new IllegalArgumentException("trait name already registered");
         registered.put(info.getTraitName(), info);
+        if (info.isDefaultTrait()) {
+            defaultTraits.add(info);
+        }
     }
 
     private static final Set<String> INTERNAL_TRAITS = Sets.newHashSet();

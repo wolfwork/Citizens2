@@ -2,7 +2,6 @@ package net.citizensnpcs.npc.ai;
 
 import java.lang.reflect.Field;
 
-import net.citizensnpcs.Settings.Setting;
 import net.citizensnpcs.api.ai.AttackStrategy;
 import net.citizensnpcs.api.ai.EntityTarget;
 import net.citizensnpcs.api.ai.NavigatorParameters;
@@ -12,23 +11,22 @@ import net.citizensnpcs.api.npc.NPC;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.PlayerAnimation;
 import net.citizensnpcs.util.nms.PlayerNavigation;
-import net.minecraft.server.v1_6_R2.AttributeInstance;
-import net.minecraft.server.v1_6_R2.Entity;
-import net.minecraft.server.v1_6_R2.EntityLiving;
-import net.minecraft.server.v1_6_R2.EntityPlayer;
-import net.minecraft.server.v1_6_R2.Navigation;
-import net.minecraft.server.v1_6_R2.PathEntity;
+import net.minecraft.server.v1_7_R2.AttributeInstance;
+import net.minecraft.server.v1_7_R2.Entity;
+import net.minecraft.server.v1_7_R2.EntityLiving;
+import net.minecraft.server.v1_7_R2.EntityPlayer;
+import net.minecraft.server.v1_7_R2.Navigation;
+import net.minecraft.server.v1_7_R2.PathEntity;
 
 import org.bukkit.Location;
-import org.bukkit.craftbukkit.v1_6_R2.entity.CraftEntity;
-import org.bukkit.craftbukkit.v1_6_R2.entity.CraftLivingEntity;
+import org.bukkit.craftbukkit.v1_7_R2.entity.CraftEntity;
 import org.bukkit.entity.LivingEntity;
 
 public class MCTargetStrategy implements PathStrategy, EntityTarget {
     private final boolean aggro;
     private int attackTicks;
     private CancelReason cancelReason;
-    private final EntityLiving handle;
+    private final Entity handle;
     private final NPC npc;
     private final NavigatorParameters parameters;
     private final Entity target;
@@ -37,7 +35,7 @@ public class MCTargetStrategy implements PathStrategy, EntityTarget {
     public MCTargetStrategy(NPC npc, org.bukkit.entity.Entity target, boolean aggro, NavigatorParameters params) {
         this.npc = npc;
         this.parameters = params;
-        this.handle = ((CraftLivingEntity) npc.getBukkitEntity()).getHandle();
+        this.handle = ((CraftEntity) npc.getEntity()).getHandle();
         this.target = ((CraftEntity) target).getHandle();
         Navigation nav = NMS.getNavigation(this.handle);
         this.targetNavigator = nav != null && !params.useNewPathfinder() ? new NavigationFieldWrapper(nav)
@@ -48,12 +46,16 @@ public class MCTargetStrategy implements PathStrategy, EntityTarget {
     private boolean canAttack() {
         return attackTicks == 0
                 && (handle.boundingBox.e > target.boundingBox.b && handle.boundingBox.b < target.boundingBox.e)
-                && distanceSquared() <= Setting.NPC_ATTACK_DISTANCE.asDouble() && hasLineOfSight();
+                && closeEnough(distanceSquared()) && hasLineOfSight();
     }
 
     @Override
     public void clearCancelReason() {
         cancelReason = null;
+    }
+
+    private boolean closeEnough(double distance) {
+        return distance <= parameters.attackRange();
     }
 
     private double distanceSquared() {
@@ -114,31 +116,37 @@ public class MCTargetStrategy implements PathStrategy, EntityTarget {
             cancelReason = CancelReason.TARGET_MOVED_WORLD;
             return true;
         }
-        if (cancelReason != null)
+        if (cancelReason != null) {
             return true;
+        }
         setPath();
         NMS.look(handle, target);
         if (aggro && canAttack()) {
             AttackStrategy strategy = parameters.attackStrategy();
             if (strategy != null && strategy.handle((LivingEntity) handle.getBukkitEntity(), getTarget())) {
+            } else if (strategy != parameters.defaultAttackStrategy()) {
+                parameters.defaultAttackStrategy().handle((LivingEntity) handle.getBukkitEntity(), getTarget());
             }
             attackTicks = ATTACK_DELAY_TICKS;
         }
-        if (attackTicks > 0)
+        if (attackTicks > 0) {
             attackTicks--;
+        }
 
         return false;
     }
 
     private class AStarTargeter implements TargetNavigator {
         private int failureTimes = 0;
-        private AStarNavigationStrategy strategy = new AStarNavigationStrategy(npc, target.getBukkitEntity()
-                .getLocation(TARGET_LOCATION), parameters);
+        private PathStrategy strategy;
+
+        public AStarTargeter() {
+            setStrategy();
+        }
 
         @Override
         public void setPath() {
-            strategy = new AStarNavigationStrategy(npc, target.getBukkitEntity().getLocation(TARGET_LOCATION),
-                    parameters);
+            setStrategy();
             strategy.update();
             CancelReason subReason = strategy.getCancelReason();
             if (subReason == CancelReason.STUCK) {
@@ -149,6 +157,12 @@ public class MCTargetStrategy implements PathStrategy, EntityTarget {
                 failureTimes = 0;
                 cancelReason = strategy.getCancelReason();
             }
+        }
+
+        private void setStrategy() {
+            Location location = target.getBukkitEntity().getLocation(TARGET_LOCATION);
+            strategy = npc.isFlyable() ? new FlyingAStarNavigationStrategy(npc, location, parameters)
+                    : new AStarNavigationStrategy(npc, location, parameters);
         }
 
         @Override

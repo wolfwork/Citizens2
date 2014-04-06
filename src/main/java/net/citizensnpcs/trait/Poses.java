@@ -7,8 +7,8 @@ import net.citizensnpcs.api.exception.NPCLoadException;
 import net.citizensnpcs.api.trait.Trait;
 import net.citizensnpcs.api.util.DataKey;
 import net.citizensnpcs.api.util.Messaging;
+import net.citizensnpcs.api.util.Paginator;
 import net.citizensnpcs.util.Messages;
-import net.citizensnpcs.util.Paginator;
 import net.citizensnpcs.util.Pose;
 import net.citizensnpcs.util.Util;
 
@@ -37,7 +37,7 @@ public class Poses extends Trait {
         if (!npc.isSpawned())
             npc.spawn(npc.getTrait(CurrentLocation.class).getLocation());
 
-        Util.assumePose(npc.getBukkitEntity(), yaw, pitch);
+        Util.assumePose(npc.getEntity(), yaw, pitch);
     }
 
     public void assumePose(Location location) {
@@ -63,14 +63,12 @@ public class Poses extends Trait {
             throw new CommandException(Messages.COMMAND_PAGE_MISSING);
     }
 
-
     public Pose getPose(String name) {
         for (Pose pose : poses.values())
             if (pose.getName().equalsIgnoreCase(name))
                 return pose;
         return null;
     }
-
 
     public boolean hasPose(String pose) {
         return poses.containsKey(pose.toLowerCase());

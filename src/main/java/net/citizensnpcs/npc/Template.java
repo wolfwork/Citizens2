@@ -12,6 +12,8 @@ import net.citizensnpcs.api.util.MemoryDataKey;
 import net.citizensnpcs.api.util.YamlStorage;
 import net.citizensnpcs.api.util.YamlStorage.YamlKey;
 
+import com.google.common.base.Function;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 
@@ -29,23 +31,29 @@ public class Template {
     @SuppressWarnings("unchecked")
     public void apply(NPC npc) {
         MemoryDataKey memoryKey = new MemoryDataKey();
-        ((CitizensNPC) npc).save(memoryKey);
+        npc.save(memoryKey);
         List<Node> queue = Lists.newArrayList(new Node("", replacements));
         for (int i = 0; i < queue.size(); i++) {
             Node node = queue.get(i);
             for (Entry<String, Object> entry : node.map.entrySet()) {
-                String fullKey = node.headKey + '.' + entry.getKey();
+                String fullKey = node.headKey.isEmpty() ? entry.getKey() : node.headKey + '.' + entry.getKey();
                 if (entry.getValue() instanceof Map<?, ?>) {
                     queue.add(new Node(fullKey, (Map<String, Object>) entry.getValue()));
                     continue;
                 }
                 boolean overwrite = memoryKey.keyExists(fullKey) | override;
-                if (!overwrite)
+                if (!overwrite || fullKey.equals("uuid"))
                     continue;
                 memoryKey.setRaw(fullKey, entry.getValue());
             }
         }
-        ((CitizensNPC) npc).load(memoryKey);
+        npc.load(memoryKey);
+    }
+
+    public void delete() {
+        templates.load();
+        templates.getKey("").removeKey(name);
+        templates.save();
     }
 
     public String getName() {
@@ -54,7 +62,6 @@ public class Template {
 
     private static class Node {
         String headKey;
-
         Map<String, Object> map;
 
         private Node(String headKey, Map<String, Object> map) {
@@ -81,7 +88,7 @@ public class Template {
             replacements.clear();
             MemoryDataKey key = new MemoryDataKey();
             ((CitizensNPC) npc).save(key);
-            replacements.putAll(key.getRawTree());
+            replacements.putAll(key.getValuesDeep());
             return this;
         }
 
@@ -91,6 +98,7 @@ public class Template {
         }
 
         public void save() {
+            templates.load();
             DataKey root = templates.getKey(name);
             root.setBoolean("override", override);
             root.setRaw("replacements", replacements);
@@ -102,9 +110,18 @@ public class Template {
         }
     }
 
-    private static YamlStorage templates = new YamlStorage(new File(CitizensAPI.getDataFolder(), "templates.yml"));
+    public static Iterable<Template> allTemplates() {
+        templates.load();
+        return Iterables.transform(templates.getKey("").getSubKeys(), new Function<DataKey, Template>() {
+            @Override
+            public Template apply(DataKey arg0) {
+                return Template.byName(arg0.name());
+            }
+        });
+    }
 
     public static Template byName(String name) {
+        templates.load();
         if (!templates.getKey("").keyExists(name))
             return null;
         YamlKey key = templates.getKey(name);
@@ -112,6 +129,8 @@ public class Template {
         Map<String, Object> replacements = key.getRelative("replacements").getValuesDeep();
         return new Template(name, replacements, override);
     }
+
+    private static YamlStorage templates = new YamlStorage(new File(CitizensAPI.getDataFolder(), "templates.yml"));
 
     static {
         templates.load();

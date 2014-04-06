@@ -2,10 +2,10 @@ package net.citizensnpcs.trait.text;
 
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 import net.citizensnpcs.Settings.Setting;
@@ -16,10 +16,10 @@ import net.citizensnpcs.api.exception.NPCLoadException;
 import net.citizensnpcs.api.trait.Trait;
 import net.citizensnpcs.api.util.DataKey;
 import net.citizensnpcs.api.util.Messaging;
+import net.citizensnpcs.api.util.Paginator;
 import net.citizensnpcs.editor.Editor;
 import net.citizensnpcs.trait.Toggleable;
 import net.citizensnpcs.util.Messages;
-import net.citizensnpcs.util.Paginator;
 import net.citizensnpcs.util.Util;
 
 import org.bukkit.Bukkit;
@@ -33,8 +33,10 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.plugin.Plugin;
 
+import com.google.common.collect.Maps;
+
 public class Text extends Trait implements Runnable, Toggleable, Listener, ConversationAbandonedListener {
-    private final Map<String, Date> cooldowns = new HashMap<String, Date>();
+    private final Map<UUID, Date> cooldowns = Maps.newHashMap();
     private int currentIndex;
     private String itemInHandPattern = "default";
     private final Plugin plugin;
@@ -67,7 +69,6 @@ public class Text extends Trait implements Runnable, Toggleable, Listener, Conve
                 .withLocalEcho(false).withEscapeSequence("/npc text").withEscapeSequence("exit").withModality(false)
                 .withFirstPrompt(new TextStartPrompt(this)).buildConversation(player);
         return new Editor() {
-
             @Override
             public void begin() {
                 Messaging.sendTr(player, Messages.TEXT_EDITOR_BEGIN);
@@ -90,12 +91,15 @@ public class Text extends Trait implements Runnable, Toggleable, Listener, Conve
     public void load(DataKey key) throws NPCLoadException {
         text.clear();
         // TODO: legacy, remove later
-        for (DataKey sub : key.getIntegerSubKeys())
+        for (DataKey sub : key.getIntegerSubKeys()) {
             text.add(sub.getString(""));
-        for (DataKey sub : key.getRelative("text").getIntegerSubKeys())
+        }
+        for (DataKey sub : key.getRelative("text").getIntegerSubKeys()) {
             text.add(sub.getString(""));
-        if (text.isEmpty())
+        }
+        if (text.isEmpty()) {
             populateDefaultText();
+        }
 
         talkClose = key.getBoolean("talk-close", talkClose);
         realisticLooker = key.getBoolean("realistic-looking", realisticLooker);
@@ -126,18 +130,18 @@ public class Text extends Trait implements Runnable, Toggleable, Listener, Conve
     public void run() {
         if (!talkClose || !npc.isSpawned())
             return;
-        List<Entity> nearby = npc.getBukkitEntity().getNearbyEntities(range, range, range);
+        List<Entity> nearby = npc.getEntity().getNearbyEntities(range, range, range);
         for (Entity search : nearby) {
             if (!(search instanceof Player))
                 continue;
             Player player = (Player) search;
             // If the cooldown is not expired, do not send text
-            Date cooldown = cooldowns.get(player.getName());
+            Date cooldown = cooldowns.get(player.getUniqueId());
             if (cooldown != null) {
                 if (!new Date().after(cooldown)) {
                     return;
                 }
-                cooldowns.remove(player.getName());
+                cooldowns.remove(player.getUniqueId());
             }
             if (!sendText(player))
                 return;
@@ -149,7 +153,7 @@ public class Text extends Trait implements Runnable, Toggleable, Listener, Conve
                 return;
             long millisecondsDelta = TimeUnit.MILLISECONDS.convert(secondsDelta, TimeUnit.SECONDS);
             wait.setTime(wait.getTime() + millisecondsDelta);
-            cooldowns.put(player.getName(), wait);
+            cooldowns.put(player.getUniqueId(), wait);
         }
     }
 
