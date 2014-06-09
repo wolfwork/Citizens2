@@ -10,6 +10,7 @@ import net.citizensnpcs.editor.EquipmentEditor;
 import net.citizensnpcs.trait.text.Text;
 import net.citizensnpcs.trait.waypoint.Waypoints;
 
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 
 @Requirements(selected = true, ownership = true)
@@ -48,8 +49,11 @@ public class EditorCommands {
             flags = "*",
             permission = "citizens.npc.edit.path")
     @Requirements(selected = true, ownership = true)
-    public void path(CommandContext args, Player player, NPC npc) {
-        Editor.enterOrLeave(player, npc.getTrait(Waypoints.class).getEditor(player, args));
+    public void path(CommandContext args, CommandSender player, NPC npc) {
+        Editor editor = npc.getTrait(Waypoints.class).getEditor(player, args);
+        if (editor == null)
+            return;
+        Editor.enterOrLeave((Player) player, editor);
     }
 
     @Command(

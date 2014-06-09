@@ -23,11 +23,11 @@ import net.citizensnpcs.trait.CurrentLocation;
 import net.citizensnpcs.util.Messages;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
-import net.minecraft.server.v1_7_R2.PacketPlayOutEntityTeleport;
+import net.minecraft.server.v1_7_R3.PacketPlayOutEntityTeleport;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.craftbukkit.v1_7_R2.entity.CraftEntity;
+import org.bukkit.craftbukkit.v1_7_R3.entity.CraftEntity;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
@@ -52,12 +52,16 @@ public class CitizensNPC extends AbstractNPC {
     public boolean despawn(DespawnReason reason) {
         if (!isSpawned()) {
             Messaging.debug("Tried to despawn", getId(), "while already despawned.");
+            if (reason == DespawnReason.REMOVAL) {
+                Bukkit.getPluginManager().callEvent(new NPCDespawnEvent(this, reason));
+            }
             return false;
         }
 
         NPCDespawnEvent event = new NPCDespawnEvent(this, reason);
-        if (reason == DespawnReason.CHUNK_UNLOAD)
+        if (reason == DespawnReason.CHUNK_UNLOAD) {
             event.setCancelled(Setting.KEEP_CHUNKS_LOADED.asBoolean());
+        }
         Bukkit.getPluginManager().callEvent(event);
         if (event.isCancelled()) {
             getEntity().getLocation().getChunk().load();
@@ -73,6 +77,7 @@ public class CitizensNPC extends AbstractNPC {
         }
         navigator.onDespawn();
         entityController.remove();
+
         return true;
     }
 
@@ -110,8 +115,9 @@ public class CitizensNPC extends AbstractNPC {
 
         // Spawn the NPC
         CurrentLocation spawnLocation = getTrait(CurrentLocation.class);
-        if (getTrait(Spawned.class).shouldSpawn() && spawnLocation.getLocation() != null)
+        if (getTrait(Spawned.class).shouldSpawn() && spawnLocation.getLocation() != null) {
             spawn(spawnLocation.getLocation());
+        }
 
         navigator.load(root.getRelative("navigator"));
     }
@@ -119,6 +125,8 @@ public class CitizensNPC extends AbstractNPC {
     @Override
     public void save(DataKey root) {
         super.save(root);
+        if (!data().get(NPC.SHOULD_SAVE_METADATA, true))
+            return;
         navigator.save(root.getRelative("navigator"));
     }
 
@@ -160,7 +168,7 @@ public class CitizensNPC extends AbstractNPC {
 
         at = at.clone();
         entityController.spawn(at, this);
-        net.minecraft.server.v1_7_R2.Entity mcEntity = ((CraftEntity) getEntity()).getHandle();
+        net.minecraft.server.v1_7_R3.Entity mcEntity = ((CraftEntity) getEntity()).getHandle();
         boolean couldSpawn = !Util.isLoaded(at) ? false : mcEntity.world.addEntity(mcEntity, SpawnReason.CUSTOM);
         mcEntity.setPositionRotation(at.getX(), at.getY(), at.getZ(), at.getYaw(), at.getPitch());
         if (!couldSpawn) {

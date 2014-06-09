@@ -7,13 +7,13 @@ import net.citizensnpcs.npc.MobEntityController;
 import net.citizensnpcs.npc.ai.NPCHolder;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
-import net.minecraft.server.v1_7_R2.EntityBat;
-import net.minecraft.server.v1_7_R2.World;
+import net.minecraft.server.v1_7_R3.EntityBat;
+import net.minecraft.server.v1_7_R3.World;
 
 import org.bukkit.Bukkit;
-import org.bukkit.craftbukkit.v1_7_R2.CraftServer;
-import org.bukkit.craftbukkit.v1_7_R2.entity.CraftBat;
-import org.bukkit.craftbukkit.v1_7_R2.entity.CraftEntity;
+import org.bukkit.craftbukkit.v1_7_R3.CraftServer;
+import org.bukkit.craftbukkit.v1_7_R3.entity.CraftBat;
+import org.bukkit.craftbukkit.v1_7_R3.entity.CraftEntity;
 import org.bukkit.entity.Bat;
 import org.bukkit.util.Vector;
 
@@ -59,12 +59,13 @@ public class BatController extends MobEntityController {
 
         @Override
         protected String aS() {
-            return npc == null ? super.aS() : npc.data().get(NPC.HURT_SOUND_METADATA, super.aS());
+            return npc == null || !npc.data().has(NPC.HURT_SOUND_METADATA) ? super.aS() : npc.data().get(
+                    NPC.HURT_SOUND_METADATA, super.aS());
         }
 
         @Override
         protected String aT() {
-            return npc == null ? super.aT() : npc.data().get(NPC.DEATH_SOUND_METADATA, super.aT());
+            return npc == null || !npc.data().has(NPC.DEATH_SOUND_METADATA) ? super.aT() : npc.data().get(NPC.DEATH_SOUND_METADATA, super.aT());
         }
 
         @Override
@@ -92,7 +93,7 @@ public class BatController extends MobEntityController {
         }
 
         @Override
-        public void collide(net.minecraft.server.v1_7_R2.Entity entity) {
+        public void collide(net.minecraft.server.v1_7_R3.Entity entity) {
             // this method is called by both the entities involved - cancelling
             // it will not stop the NPC from moving.
             super.collide(entity);
@@ -148,7 +149,7 @@ public class BatController extends MobEntityController {
 
         @Override
         protected String t() {
-            return npc == null ? super.aS() : npc.data().get(NPC.AMBIENT_SOUND_METADATA, super.t());
+            return npc == null || !npc.data().has(NPC.AMBIENT_SOUND_METADATA) ? super.t() : npc.data().get(NPC.AMBIENT_SOUND_METADATA, super.t());
         }
 
         @Override

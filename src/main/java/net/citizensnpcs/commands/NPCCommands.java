@@ -33,6 +33,8 @@ import net.citizensnpcs.npc.EntityControllers;
 import net.citizensnpcs.npc.NPCSelector;
 import net.citizensnpcs.npc.Template;
 import net.citizensnpcs.npc.entity.nonliving.FallingBlockController.FallingBlockNPC;
+import net.citizensnpcs.npc.entity.nonliving.ItemController.ItemNPC;
+import net.citizensnpcs.npc.entity.nonliving.ItemFrameController.ItemFrameNPC;
 import net.citizensnpcs.trait.Age;
 import net.citizensnpcs.trait.Anchors;
 import net.citizensnpcs.trait.Controllable;
@@ -42,7 +44,6 @@ import net.citizensnpcs.trait.HorseModifiers;
 import net.citizensnpcs.trait.LookClose;
 import net.citizensnpcs.trait.NPCSkeletonType;
 import net.citizensnpcs.trait.OcelotModifiers;
-import net.citizensnpcs.trait.PlayerSkin;
 import net.citizensnpcs.trait.Poses;
 import net.citizensnpcs.trait.Powered;
 import net.citizensnpcs.trait.SlimeSize;
@@ -584,15 +585,18 @@ public class NPCCommands {
         Material mat = Material.matchMaterial(args.getString(1));
         if (mat == null)
             throw new CommandException(Messages.UNKNOWN_MATERIAL);
+        int data = args.getInteger(2, 0);
         switch (npc.getEntity().getType()) {
             case DROPPED_ITEM:
                 ((org.bukkit.entity.Item) npc.getEntity()).getItemStack().setType(mat);
+                ((ItemNPC) npc.getEntity()).setType(mat, data);
                 break;
             case ITEM_FRAME:
                 ((ItemFrame) npc.getEntity()).getItem().setType(mat);
+                ((ItemFrameNPC) npc.getEntity()).setType(mat, data);
                 break;
             case FALLING_BLOCK:
-                ((FallingBlockNPC) npc.getEntity()).setType(mat, args.argsLength() > 2 ? args.getInteger(2) : 0);
+                ((FallingBlockNPC) npc.getEntity()).setType(mat, data);
                 break;
             default:
                 break;
@@ -955,24 +959,6 @@ public class NPCCommands {
 
     @Command(
             aliases = { "npc" },
-            usage = "skin [skin|-c]",
-            desc = "Sets a player NPC's skin",
-            flags = "c",
-            modifiers = { "skin" },
-            min = 1,
-            max = 2,
-            permission = "citizens.npc.skin")
-    @Requirements(selected = true, ownership = true, types = EntityType.PLAYER)
-    public void playerSkin(CommandContext args, CommandSender sender, NPC npc) throws CommandException {
-        if (!args.hasFlag('c') && args.argsLength() == 0)
-            throw new CommandException();
-        String skin = args.hasFlag('c') ? "" : args.getString(1);
-        npc.getTrait(PlayerSkin.class).setSkinName(skin);
-        Messaging.sendTr(sender, skin.isEmpty() ? Messages.SKIN_CLEARED : Messages.SKIN_SET, npc.getFullName(), skin);
-    }
-
-    @Command(
-            aliases = { "npc" },
             usage = "pose (--save [name]|--assume [name]|--remove [name]) (-a)",
             desc = "Changes/Saves/Lists NPC's head pose(s)",
             flags = "a",
@@ -1186,6 +1172,32 @@ public class NPCCommands {
 
     @Command(
             aliases = { "npc" },
+            usage = "skin (-c) [name]",
+            desc = "Sets an NPC's skin name",
+            modifiers = { "skin" },
+            min = 1,
+            max = 2,
+            permission = "citizens.npc.skin")
+    @Requirements(types = EntityType.PLAYER)
+    public void skin(final CommandContext args, final CommandSender sender, final NPC npc) throws CommandException {
+        String skinName = npc.getName();
+        if (args.hasFlag('c')) {
+            npc.data().remove(NPC.PLAYER_SKIN_UUID_METADATA);
+        } else {
+            if (args.argsLength() != 2)
+                throw new CommandException();
+            npc.data().setPersistent(NPC.PLAYER_SKIN_UUID_METADATA, args.getString(1));
+            skinName = args.getString(1);
+        }
+        Messaging.sendTr(sender, Messages.SKIN_SET, npc.getName(), skinName);
+        if (npc.isSpawned()) {
+            npc.despawn(DespawnReason.PENDING_RESPAWN);
+            npc.spawn(npc.getStoredLocation());
+        }
+    }
+
+    @Command(
+            aliases = { "npc" },
             usage = "size [size]",
             desc = "Sets the NPC's size",
             modifiers = { "size" },
@@ -1240,9 +1252,21 @@ public class NPCCommands {
                 hurtSound = args.getFlag("hurt").equals("d") ? null : NMS.getSound(args.getFlag("hurt"));
             }
         }
-        npc.data().setPersistent(NPC.DEATH_SOUND_METADATA, deathSound);
-        npc.data().setPersistent(NPC.HURT_SOUND_METADATA, hurtSound);
-        npc.data().setPersistent(NPC.AMBIENT_SOUND_METADATA, ambientSound);
+        if (deathSound == null) {
+            npc.data().remove(NPC.DEATH_SOUND_METADATA);
+        } else {
+            npc.data().setPersistent(NPC.DEATH_SOUND_METADATA, deathSound);
+        }
+        if (hurtSound == null) {
+            npc.data().remove(NPC.HURT_SOUND_METADATA);
+        } else {
+            npc.data().setPersistent(NPC.HURT_SOUND_METADATA, hurtSound);
+        }
+        if (ambientSound == null) {
+            npc.data().remove(ambientSound);
+        } else {
+            npc.data().setPersistent(NPC.AMBIENT_SOUND_METADATA, ambientSound);
+        }
 
         Messaging.sendTr(sender, Messages.SOUND_SET, npc.getName(), ambientSound, hurtSound, deathSound);
     }
@@ -1316,8 +1340,9 @@ public class NPCCommands {
                     context.addRecipient(target.getEntity());
             } else {
                 Player player = Bukkit.getPlayer(args.getFlag("target"));
-                if (player != null)
+                if (player != null) {
                     context.addRecipient((Entity) player);
+                }
             }
         }
 
@@ -1454,8 +1479,9 @@ public class NPCCommands {
                 to = toNPC.getEntity();
             }
         } catch (NumberFormatException e) {
-            if (!firstWasPlayer)
+            if (!firstWasPlayer) {
                 to = Bukkit.getPlayerExact(args.getString(2));
+            }
         }
         if (from == null)
             throw new CommandException(Messages.FROM_ENTITY_NOT_FOUND);
