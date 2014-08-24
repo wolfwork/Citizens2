@@ -2,6 +2,7 @@ package net.citizensnpcs.npc.entity;
 
 import java.lang.reflect.Method;
 import java.net.URL;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.BlockingDeque;
@@ -13,6 +14,7 @@ import net.citizensnpcs.api.CitizensAPI;
 import net.citizensnpcs.api.event.DespawnReason;
 import net.citizensnpcs.api.npc.NPC;
 import net.citizensnpcs.api.util.Colorizer;
+import net.citizensnpcs.api.util.Messaging;
 import net.citizensnpcs.npc.AbstractEntityController;
 import net.citizensnpcs.util.NMS;
 import net.minecraft.server.v1_7_R4.PlayerInteractManager;
@@ -148,6 +150,10 @@ public class HumanController extends AbstractEntityController {
             GameProfile skinProfile = null;
             Property cached = TEXTURE_CACHE.get(realUUID);
             if (cached != null) {
+                if (Messaging.isDebugging()) {
+                    Messaging
+                    .debug("Using cached skin texture for NPC " + npc.getName() + " UUID " + npc.getUniqueId());
+                }
                 skinProfile = new GameProfile(UUID.fromString(realUUID), "");
                 skinProfile.getProperties().put("textures", cached);
             } else {
@@ -157,8 +163,8 @@ public class HumanController extends AbstractEntityController {
                             new GameProfile(UUID.fromString(realUUID), ""), true);
                 } catch (Exception e) {
                     if (e.getMessage() != null && e.getMessage().contains("too many requests")) {
-                        SKIN_THREAD.addRunnable(this);
                         SKIN_THREAD.delay();
+                        SKIN_THREAD.addRunnable(this);
                     }
                     return;
                 }
@@ -168,6 +174,11 @@ public class HumanController extends AbstractEntityController {
                 Property textures = Iterables.getFirst(skinProfile.getProperties().get("textures"), null);
                 if (textures.getValue() == null || textures.getSignature() == null)
                     return;
+
+                if (Messaging.isDebugging()) {
+                    Messaging.debug("Fetched skin texture for UUID " + realUUID + " for NPC " + npc.getName()
+                            + " UUID " + npc.getUniqueId());
+                }
                 TEXTURE_CACHE.put(realUUID, new Property("textures", textures.getValue(), textures.getSignature()));
             }
             Bukkit.getScheduler().callSyncMethod(CitizensAPI.getPlugin(), new Callable<Void>() {
@@ -188,6 +199,12 @@ public class HumanController extends AbstractEntityController {
         private final BlockingDeque<Runnable> tasks = new LinkedBlockingDeque<Runnable>();
 
         public void addRunnable(Runnable r) {
+            Iterator<Runnable> itr = tasks.iterator();
+            while (itr.hasNext()) {
+                if (((SkinFetcher) itr.next()).npc.getUniqueId().equals(((SkinFetcher) r).npc.getUniqueId())) {
+                    itr.remove();
+                }
+            }
             tasks.offer(r);
         }
 
@@ -241,6 +258,10 @@ public class HumanController extends AbstractEntityController {
                         @Override
                         public void onProfileLookupSucceeded(final GameProfile profile) {
                             UUID_CACHE.put(reportedUUID, profile.getId().toString());
+                            if (Messaging.isDebugging()) {
+                                Messaging.debug("Fetched UUID " + profile.getId() + " for NPC " + npc.getName()
+                                + " UUID " + npc.getUniqueId());
+                            }
                             npc.data().setPersistent(CACHED_SKIN_UUID_METADATA, profile.getId().toString());
                             npc.data().setPersistent(CACHED_SKIN_UUID_NAME_METADATA, profile.getName());
                         }
