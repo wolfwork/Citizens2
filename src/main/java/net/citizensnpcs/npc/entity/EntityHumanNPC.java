@@ -1,6 +1,8 @@
 package net.citizensnpcs.npc.entity;
 
 import java.io.IOException;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.Method;
 import java.net.Socket;
 import java.util.List;
 
@@ -154,9 +156,7 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder {
             // gravity. also works around an entity.onGround not updating issue
             // (onGround is normally updated by the client)
         }
-        if (!npc.data().get("removefromplayerlist", Setting.REMOVE_PLAYERS_FROM_PLAYER_LIST.asBoolean())) {
-            i();// TODO
-        }
+
         if (Math.abs(motX) < EPSILON && Math.abs(motY) < EPSILON && Math.abs(motZ) < EPSILON)
             motX = motY = motZ = 0;
         if (navigating) {
@@ -268,14 +268,27 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder {
             for (int i = 0; i < 5; i++) {
                 packets[i] = new PacketPlayOutEntityEquipment(getId(), i, getEquipment(i));
             }
-            boolean removeFromPlayerList = Setting.REMOVE_PLAYERS_FROM_PLAYER_LIST.asBoolean();
-            NMS.addOrRemoveFromPlayerList(getBukkitEntity(),
-                    npc.data().get("removefromplayerlist", removeFromPlayerList));
+
+            boolean removeFromPlayerList = npc.data().get("removefromplayerlist",
+                    Setting.REMOVE_PLAYERS_FROM_PLAYER_LIST.asBoolean());
+            NMS.addOrRemoveFromPlayerList(getBukkitEntity(), removeFromPlayerList);
             int useListName = removeFromPlayerList ? 0 : 1;
             if (useListName != this.useListName || this.useListName == -1) {
                 this.useListName = useListName;
-                packets[5] = new PacketPlayOutPlayerInfo(getBukkitEntity().getPlayerListName(), !removeFromPlayerList,
-                        removeFromPlayerList ? 9999 : ping);
+            }
+            if (PLAYER_INFO_CONSTRUCTOR != null) {
+                try {
+                    packets[5] = PLAYER_INFO_CONSTRUCTOR.newInstance(getBukkitEntity().getPlayerListName(),
+                            !removeFromPlayerList, removeFromPlayerList ? 9999 : ping);
+                } catch (Exception e) {
+                }
+            } else {
+                try {
+                    packets[5] = (Packet) (removeFromPlayerList ? PLAYER_INFO_REMOVE_METHOD.invoke(null,
+                            getBukkitEntity().getHandle()) : PLAYER_INFO_ADD_METHOD.invoke(null, getBukkitEntity()
+                            .getHandle()));
+                } catch (Exception e) {
+                }
             }
             NMS.sendPacketsNearby(getBukkitEntity(), current, packets);
         }
@@ -333,4 +346,23 @@ public class EntityHumanNPC extends EntityPlayer implements NPCHolder {
 
     private static final float EPSILON = 0.005F;
     private static final Location LOADED_LOCATION = new Location(null, 0, 0, 0);
+    private static Method PLAYER_INFO_ADD_METHOD;
+    private static Constructor<PacketPlayOutPlayerInfo> PLAYER_INFO_CONSTRUCTOR;
+    private static Method PLAYER_INFO_REMOVE_METHOD;
+
+    static {
+        try {
+            PLAYER_INFO_CONSTRUCTOR = PacketPlayOutPlayerInfo.class.getConstructor(String.class, boolean.class,
+                    int.class);
+        } catch (Exception e) {
+        }
+        try {
+            PLAYER_INFO_ADD_METHOD = PacketPlayOutPlayerInfo.class.getMethod("addPlayer", EntityPlayer.class);
+            PLAYER_INFO_REMOVE_METHOD = PacketPlayOutPlayerInfo.class.getMethod("removePlayer", EntityPlayer.class);
+            PLAYER_INFO_ADD_METHOD.setAccessible(true);
+            PLAYER_INFO_REMOVE_METHOD.setAccessible(true);
+        } catch (Exception e) {
+        }
+
+    }
 }

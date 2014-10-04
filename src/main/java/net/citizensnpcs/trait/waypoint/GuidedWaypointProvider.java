@@ -96,12 +96,24 @@ public class GuidedWaypointProvider implements WaypointProvider {
                             togglePath();
                         }
                     });
+                } else if (event.getMessage().equalsIgnoreCase("clear")) {
+                    Bukkit.getScheduler().scheduleSyncDelayedTask(CitizensAPI.getPlugin(), new Runnable() {
+                        @Override
+                        public void run() {
+                            available.clear();
+                            helpers.clear();
+                            if (showPath)
+                                markers.destroyWaypointMarkers();
+                        }
+                    });
                 }
             }
 
             @EventHandler(ignoreCancelled = true)
             public void onPlayerInteract(PlayerInteractEvent event) {
-                if (!event.getPlayer().equals(player) || event.getAction() == Action.PHYSICAL
+                if (!event.getPlayer().equals(player) || event.getAction() == Action.PHYSICAL 
+                        || event.getAction() == Action.RIGHT_CLICK_AIR
+                        || event.getAction() == Action.RIGHT_CLICK_BLOCK
                         || event.getClickedBlock() == null)
                     return;
                 if (event.getPlayer().getWorld() != npc.getEntity().getWorld())
