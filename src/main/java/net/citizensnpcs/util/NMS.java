@@ -176,7 +176,7 @@ public class NMS {
 
     @SuppressWarnings("deprecation")
     private static Constructor<?> getCustomEntityConstructor(Class<?> clazz, EntityType type) throws SecurityException,
-            NoSuchMethodException {
+    NoSuchMethodException {
         Constructor<?> constructor = ENTITY_CONSTRUCTOR_CACHE.get(clazz);
         if (constructor == null) {
             constructor = clazz.getConstructor(World.class);
@@ -295,6 +295,8 @@ public class NMS {
     @SuppressWarnings("deprecation")
     public static void minecartItemLogic(EntityMinecartAbstract minecart) {
         NPC npc = ((NPCHolder) minecart).getNPC();
+        if (npc == null)
+            return;
         Material mat = Material.getMaterial(npc.data().get(NPC.MINECART_ITEM_METADATA, ""));
         int data = npc.data().get(NPC.MINECART_ITEM_DATA_METADATA, 0);
         int offset = npc.data().get(NPC.MINECART_OFFSET_METADATA, 0);
@@ -343,6 +345,7 @@ public class NMS {
             int code = ENTITY_CLASS_TO_INT.get(search);
             ENTITY_INT_TO_CLASS.put(code, clazz);
             ENTITY_CLASS_TO_INT.put(clazz, code);
+            ENTITY_CLASS_TO_NAME.put(clazz, ENTITY_CLASS_TO_NAME.get(search));
             return;
         }
         throw new IllegalArgumentException("unable to find valid entity superclass");
@@ -552,6 +555,7 @@ public class NMS {
 
     private static final float DEFAULT_SPEED = 1F;
     private static Map<Class<?>, Integer> ENTITY_CLASS_TO_INT;
+    private static Map<Class<?>, String> ENTITY_CLASS_TO_NAME;
     private static final Map<Class<?>, Constructor<?>> ENTITY_CONSTRUCTOR_CACHE = new WeakHashMap<Class<?>, Constructor<?>>();
     private static Map<Integer, Class<?>> ENTITY_INT_TO_CLASS;
     private static Field GOAL_FIELD = getField(PathfinderGoalSelector.class, "b");
@@ -571,6 +575,8 @@ public class NMS {
             ENTITY_INT_TO_CLASS = (Map<Integer, Class<?>>) field.get(null);
             field = getField(EntityTypes.class, "f");
             ENTITY_CLASS_TO_INT = (Map<Class<?>, Integer>) field.get(null);
+            field = getField(EntityTypes.class, "d");
+            ENTITY_CLASS_TO_NAME = (Map<Class<?>, String>) field.get(null);
         } catch (Exception e) {
             Messaging.logTr(Messages.ERROR_GETTING_ID_MAPPING, e.getMessage());
             try {
