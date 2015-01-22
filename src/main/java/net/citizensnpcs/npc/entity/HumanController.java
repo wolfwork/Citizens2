@@ -17,30 +17,30 @@ import net.citizensnpcs.api.util.Colorizer;
 import net.citizensnpcs.api.util.Messaging;
 import net.citizensnpcs.npc.AbstractEntityController;
 import net.citizensnpcs.util.NMS;
-import net.minecraft.server.v1_7_R4.PlayerInteractManager;
-import net.minecraft.server.v1_7_R4.WorldServer;
-import net.minecraft.util.com.google.common.collect.Iterables;
-import net.minecraft.util.com.mojang.authlib.Agent;
-import net.minecraft.util.com.mojang.authlib.GameProfile;
-import net.minecraft.util.com.mojang.authlib.GameProfileRepository;
-import net.minecraft.util.com.mojang.authlib.HttpAuthenticationService;
-import net.minecraft.util.com.mojang.authlib.ProfileLookupCallback;
-import net.minecraft.util.com.mojang.authlib.minecraft.MinecraftSessionService;
-import net.minecraft.util.com.mojang.authlib.properties.Property;
-import net.minecraft.util.com.mojang.authlib.yggdrasil.YggdrasilAuthenticationService;
-import net.minecraft.util.com.mojang.authlib.yggdrasil.YggdrasilMinecraftSessionService;
-import net.minecraft.util.com.mojang.authlib.yggdrasil.response.MinecraftProfilePropertiesResponse;
-import net.minecraft.util.com.mojang.util.UUIDTypeAdapter;
+import net.minecraft.server.v1_8_R1.PlayerInteractManager;
+import net.minecraft.server.v1_8_R1.WorldServer;
 
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Location;
-import org.bukkit.craftbukkit.v1_7_R4.CraftServer;
-import org.bukkit.craftbukkit.v1_7_R4.CraftWorld;
+import org.bukkit.craftbukkit.v1_8_R1.CraftServer;
+import org.bukkit.craftbukkit.v1_8_R1.CraftWorld;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Maps;
+import com.mojang.authlib.Agent;
+import com.mojang.authlib.GameProfile;
+import com.mojang.authlib.GameProfileRepository;
+import com.mojang.authlib.HttpAuthenticationService;
+import com.mojang.authlib.ProfileLookupCallback;
+import com.mojang.authlib.minecraft.MinecraftSessionService;
+import com.mojang.authlib.properties.Property;
+import com.mojang.authlib.yggdrasil.YggdrasilAuthenticationService;
+import com.mojang.authlib.yggdrasil.YggdrasilMinecraftSessionService;
+import com.mojang.authlib.yggdrasil.response.MinecraftProfilePropertiesResponse;
+import com.mojang.util.UUIDTypeAdapter;
 
 public class HumanController extends AbstractEntityController {
     public HumanController() {
@@ -90,6 +90,12 @@ public class HumanController extends AbstractEntityController {
         return (Player) super.getBukkitEntity();
     }
 
+    @Override
+    public void remove() {
+        NMS.sendPlayerlistPacket(false, getBukkitEntity());
+        super.remove();
+    }
+
     private void updateSkin(final NPC npc, final WorldServer nmsWorld, GameProfile profile) {
         String skinUUID = npc.data().get(NPC.PLAYER_SKIN_UUID_METADATA);
         if (skinUUID == null) {
@@ -105,7 +111,7 @@ public class HumanController extends AbstractEntityController {
         if (cached != null) {
             profile.getProperties().put("textures", cached);
         } else {
-            SKIN_THREAD.addRunnable(new SkinFetcher(new UUIDFetcher(skinUUID, npc), nmsWorld.getMinecraftServer().av(),
+            SKIN_THREAD.addRunnable(new SkinFetcher(new UUIDFetcher(skinUUID, npc), nmsWorld.getMinecraftServer().aB(),
                     npc));
         }
     }
@@ -127,8 +133,8 @@ public class HumanController extends AbstractEntityController {
         private GameProfile fillProfileProperties(YggdrasilAuthenticationService auth, GameProfile profile,
                 boolean requireSecure) throws Exception {
             URL url = HttpAuthenticationService.constantURL(new StringBuilder()
-            .append("https://sessionserver.mojang.com/session/minecraft/profile/")
-            .append(UUIDTypeAdapter.fromUUID(profile.getId())).toString());
+                    .append("https://sessionserver.mojang.com/session/minecraft/profile/")
+                    .append(UUIDTypeAdapter.fromUUID(profile.getId())).toString());
             url = HttpAuthenticationService.concatenateURL(url,
                     new StringBuilder().append("unsigned=").append(!requireSecure).toString());
             MinecraftProfilePropertiesResponse response = (MinecraftProfilePropertiesResponse) MAKE_REQUEST.invoke(
@@ -186,21 +192,23 @@ public class HumanController extends AbstractEntityController {
                 }
                 TEXTURE_CACHE.put(realUUID, new Property("textures", textures.getValue(), textures.getSignature()));
             }
-            Bukkit.getScheduler().callSyncMethod(CitizensAPI.getPlugin(), new Callable<Void>() {
-                @Override
-                public Void call() {
-                    if (npc.isSpawned()) {
-                        npc.despawn(DespawnReason.PENDING_RESPAWN);
-                        npc.spawn(npc.getStoredLocation());
+            if (CitizensAPI.getPlugin().isEnabled()) {
+                Bukkit.getScheduler().scheduleSyncDelayedTask(CitizensAPI.getPlugin(), new Runnable() {
+                    @Override
+                    public void run() {
+                        if (npc.isSpawned()) {
+                            npc.despawn(DespawnReason.PENDING_RESPAWN);
+                            npc.spawn(npc.getStoredLocation());
+                        }
                     }
-                    return null;
-                }
-            });
+                });
+            }
         }
     }
 
     public static class SkinThread implements Runnable {
         private volatile int delay = 0;
+        private volatile int retryTimes = 0;
         private final BlockingDeque<Runnable> tasks = new LinkedBlockingDeque<Runnable>();
 
         public void addRunnable(Runnable r) {
@@ -214,13 +222,18 @@ public class HumanController extends AbstractEntityController {
         }
 
         public void delay() {
-            delay = 120; // need to wait a minute before Mojang accepts API
-            // calls again
+            delay = Setting.NPC_SKIN_RETRY_DELAY.asInt();
+            // need to wait before Mojang accepts API calls again
+            retryTimes++;
+            if (Setting.MAX_NPC_SKIN_RETRIES.asInt() >= 0 && retryTimes > Setting.MAX_NPC_SKIN_RETRIES.asInt()) {
+                tasks.clear();
+                retryTimes = 0;
+            }
         }
 
         @Override
         public void run() {
-            if (delay != 0) {
+            if (delay > 0) {
                 delay--;
                 return;
             }
@@ -266,7 +279,7 @@ public class HumanController extends AbstractEntityController {
                             UUID_CACHE.put(reportedUUID, profile.getId().toString());
                             if (Messaging.isDebugging()) {
                                 Messaging.debug("Fetched UUID " + profile.getId() + " for NPC " + npc.getName()
-                                + " UUID " + npc.getUniqueId());
+                                        + " UUID " + npc.getUniqueId());
                             }
                             npc.data().setPersistent(CACHED_SKIN_UUID_METADATA, profile.getId().toString());
                             npc.data().setPersistent(CACHED_SKIN_UUID_NAME_METADATA, profile.getName());

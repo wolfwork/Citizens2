@@ -46,6 +46,9 @@ import net.citizensnpcs.trait.NPCSkeletonType;
 import net.citizensnpcs.trait.OcelotModifiers;
 import net.citizensnpcs.trait.Poses;
 import net.citizensnpcs.trait.Powered;
+import net.citizensnpcs.trait.RabbitType;
+import net.citizensnpcs.trait.RabbitType.RabbitTypes;
+import net.citizensnpcs.trait.SheepTrait;
 import net.citizensnpcs.trait.SlimeSize;
 import net.citizensnpcs.trait.VillagerProfession;
 import net.citizensnpcs.trait.WolfModifiers;
@@ -56,6 +59,7 @@ import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.StringHelper;
 import net.citizensnpcs.util.Util;
 
+import org.apache.commons.lang3.StringUtils;
 import org.bukkit.Bukkit;
 import org.bukkit.DyeColor;
 import org.bukkit.GameMode;
@@ -1037,10 +1041,25 @@ public class NPCCommands {
         String profession = args.getString(1);
         Profession parsed = Util.matchEnum(Profession.values(), profession.toUpperCase());
         if (parsed == null) {
-            throw new CommandException(Messages.INVALID_PROFESSION);
+            throw new CommandException(Messages.INVALID_PROFESSION, args.getString(1), StringUtils.join(
+                    Profession.values(), ","));
         }
         npc.getTrait(VillagerProfession.class).setProfession(parsed);
         Messaging.sendTr(sender, Messages.PROFESSION_SET, npc.getName(), profession);
+    }
+
+    @Command(aliases = { "npc" }, usage = "rabbittype [type]", desc = "Set the Type of a Rabbit NPC", modifiers = {
+            "rabbittype", "rbtype" }, min = 2, permission = "citizens.npc.rabbittype")
+    @Requirements(selected = true, ownership = true, types = { EntityType.RABBIT })
+    public void rabbitType(CommandContext args, CommandSender sender, NPC npc) throws CommandException {
+        RabbitTypes type;
+        try {
+            type = RabbitTypes.valueOf(args.getString(1).toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new CommandException(Messages.INVALID_RABBIT_TYPE, StringUtils.join(RabbitTypes.values(), ","));
+        }
+        npc.getTrait(RabbitType.class).setType(type);
+        Messaging.sendTr(sender, Messages.RABBIT_TYPE_SET, npc.getName(), type.name());
     }
 
     @Command(aliases = { "npc" }, usage = "remove|rem (all|id|name)", desc = "Remove a NPC", modifiers = { "remove",
@@ -1172,13 +1191,38 @@ public class NPCCommands {
         }
     }
 
+    @Command(
+            aliases = { "npc" },
+            usage = "sheep (--color [color]) (--sheared [sheared])",
+            desc = "Sets sheep modifiers",
+            modifiers = { "sheep" },
+            min = 1,
+            max = 1,
+            permission = "citizens.npc.sheep")
+    @Requirements(selected = true, ownership = true, types = { EntityType.SHEEP })
+    public void sheep(CommandContext args, CommandSender sender, NPC npc) {
+        SheepTrait trait = npc.getTrait(SheepTrait.class);
+        if (args.hasValueFlag("sheared")) {
+            trait.setSheared(Boolean.valueOf(args.getFlag("sheared")));
+        }
+        if (args.hasValueFlag("color")) {
+            DyeColor color = Util.matchEnum(DyeColor.values(), args.getFlag("color"));
+            if (color != null) {
+                trait.setColor(color);
+            }
+        }
+    }
+
     @Command(aliases = { "npc" }, usage = "skeletontype [type]", desc = "Sets the NPC's skeleton type", modifiers = {
             "skeletontype", "sktype" }, min = 2, max = 2, permission = "citizens.npc.skeletontype")
     @Requirements(selected = true, ownership = true, types = EntityType.SKELETON)
     public void skeletonType(CommandContext args, CommandSender sender, NPC npc) throws CommandException {
-        SkeletonType type = SkeletonType.valueOf(args.getString(1).toUpperCase());
-        if (type == null)
-            throw new CommandException(Messages.INVALID_SKELETON_TYPE);
+        SkeletonType type;
+        try {
+            type = SkeletonType.valueOf(args.getString(1).toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new CommandException(Messages.INVALID_SKELETON_TYPE, StringUtils.join(SkeletonType.values(), ","));
+        }
         npc.getTrait(NPCSkeletonType.class).setType(type);
         Messaging.sendTr(sender, Messages.SKELETON_TYPE_SET, npc.getName(), type);
     }
@@ -1191,7 +1235,7 @@ public class NPCCommands {
             min = 1,
             max = 2,
             permission = "citizens.npc.skin")
-    @Requirements(types = EntityType.PLAYER)
+    @Requirements(types = EntityType.PLAYER, selected = true, ownership = true)
     public void skin(final CommandContext args, final CommandSender sender, final NPC npc) throws CommandException {
         String skinName = npc.getName();
         if (args.hasFlag('c')) {
@@ -1561,13 +1605,19 @@ public class NPCCommands {
             try {
                 color = DyeColor.valueOf(unparsed.toUpperCase().replace(' ', '_'));
             } catch (IllegalArgumentException e) {
-                int rgb = Integer.parseInt(unparsed.replace("#", ""), 16);
-                color = DyeColor.getByColor(org.bukkit.Color.fromRGB(rgb));
+                try {
+                    int rgb = Integer.parseInt(unparsed.replace("#", ""), 16);
+                    color = DyeColor.getByColor(org.bukkit.Color.fromRGB(rgb));
+                } catch (NumberFormatException ex) {
+                    throw new CommandException(Messages.COLLAR_COLOUR_NOT_RECOGNISED, unparsed);
+                }
             }
             if (color == null)
-                throw new CommandException(Messages.COLLAR_COLOUR_NOT_RECOGNISED);
+                throw new CommandException(Messages.COLLAR_COLOUR_NOT_SUPPORTED, unparsed);
             trait.setCollarColor(color);
         }
+        Messaging.sendTr(sender, Messages.WOLF_TRAIT_UPDATED, npc.getName(), args.hasFlag('a'), args.hasFlag('s'),
+                args.hasFlag('t'), trait.getCollarColor().name());
     }
 
     @Command(

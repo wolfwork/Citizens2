@@ -128,7 +128,7 @@ public class EventListen implements Listener {
             toRespawn.put(coord, npc);
             if (Messaging.isDebugging()) {
                 Messaging
-                .debug("Despawned id", npc.getId(), "due to chunk unload at [" + coord.x + "," + coord.z + "]");
+                        .debug("Despawned id", npc.getId(), "due to chunk unload at [" + coord.x + "," + coord.z + "]");
             }
         }
     }
@@ -339,6 +339,11 @@ public class EventListen implements Listener {
                 Messaging.debug("Spawned id", npc.getId(), "due to chunk event at [" + coord.x + "," + coord.z + "]");
             }
         }
+    }
+
+    private Location roundLocation(Location input) {
+        return new Location(input.getWorld(), Math.floor(input.getX()), Math.floor(input.getY()), Math.floor(input
+                .getZ()));
     }
 
     private boolean spawn(NPC npc) {

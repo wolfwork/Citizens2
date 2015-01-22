@@ -23,11 +23,12 @@ import net.citizensnpcs.trait.CurrentLocation;
 import net.citizensnpcs.util.Messages;
 import net.citizensnpcs.util.NMS;
 import net.citizensnpcs.util.Util;
-import net.minecraft.server.v1_7_R4.PacketPlayOutEntityTeleport;
+import net.minecraft.server.v1_8_R1.PacketPlayOutEntityTeleport;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
-import org.bukkit.craftbukkit.v1_7_R4.entity.CraftEntity;
+import org.bukkit.craftbukkit.v1_8_R1.entity.CraftEntity;
+import org.bukkit.craftbukkit.v1_8_R1.entity.CraftLivingEntity;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
@@ -168,7 +169,7 @@ public class CitizensNPC extends AbstractNPC {
         at = at.clone();
         getTrait(CurrentLocation.class).setLocation(at);
         entityController.spawn(at, this);
-        net.minecraft.server.v1_7_R4.Entity mcEntity = ((CraftEntity) getEntity()).getHandle();
+        net.minecraft.server.v1_8_R1.Entity mcEntity = ((CraftEntity) getEntity()).getHandle();
         boolean couldSpawn = !Util.isLoaded(at) ? false : mcEntity.world.addEntity(mcEntity, SpawnReason.CUSTOM);
         mcEntity.setPositionRotation(at.getX(), at.getY(), at.getZ(), at.getYaw(), at.getPitch());
         if (!couldSpawn) {
@@ -214,6 +215,9 @@ public class CitizensNPC extends AbstractNPC {
             if (NMS.getStepHeight(entity) < 1) {
                 NMS.setStepHeight(NMS.getHandle(entity), 1);
             }
+            if (getEntity() instanceof Player) {
+                NMS.replaceTrackerEntry((Player) getEntity());
+            }
         }
         return true;
     }
@@ -222,24 +226,31 @@ public class CitizensNPC extends AbstractNPC {
     public void update() {
         try {
             super.update();
-            if (isSpawned()) {
-                if (data().get(NPC.SWIMMING_METADATA, true)) {
-                    NMS.trySwim(getEntity());
-                }
-                navigator.run();
+            if (!isSpawned())
+                return;
+            if (data().get(NPC.SWIMMING_METADATA, true)) {
+                NMS.trySwim(getEntity());
+            }
+            navigator.run();
 
-                if (!getNavigator().isNavigating()
-                        && getEntity().getWorld().getFullTime() % Setting.PACKET_UPDATE_DELAY.asInt() == 0) {
-                    if (getEntity() instanceof LivingEntity) {
-                        ((LivingEntity) getEntity()).setCustomName(getFullName());
-                    }
-                    Player player = getEntity() instanceof Player ? (Player) getEntity() : null;
-                    NMS.sendPacketNearby(player, getStoredLocation(),
-                            new PacketPlayOutEntityTeleport(NMS.getHandle(getEntity())));
-                }
-
+            if (!getNavigator().isNavigating()
+                    && getEntity().getWorld().getFullTime() % Setting.PACKET_UPDATE_DELAY.asInt() == 0) {
                 if (getEntity() instanceof LivingEntity) {
-                    ((LivingEntity) getEntity()).setCustomNameVisible(data().get(NPC.NAMEPLATE_VISIBLE_METADATA, true));
+                    ((LivingEntity) getEntity()).setCustomName(getFullName());
+                }
+                Player player = getEntity() instanceof Player ? (Player) getEntity() : null;
+                NMS.sendPacketNearby(player, getStoredLocation(),
+                        new PacketPlayOutEntityTeleport(NMS.getHandle(getEntity())));
+            }
+
+            if (getEntity() instanceof LivingEntity) {
+                boolean nameplateVisible = data().get(NPC.NAMEPLATE_VISIBLE_METADATA, true);
+                ((LivingEntity) getEntity()).setCustomNameVisible(nameplateVisible);
+                Byte toByte = Byte.valueOf((byte) (nameplateVisible ? 1 : 0));
+                try {
+                    ((CraftLivingEntity) getEntity()).getHandle().getDataWatcher().watch(3, toByte);
+                } catch (NullPointerException e) {
+                    ((CraftLivingEntity) getEntity()).getHandle().getDataWatcher().a(3, toByte);
                 }
             }
         } catch (Exception ex) {
